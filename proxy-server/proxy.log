@@ -1,0 +1,139 @@
+[dotenv@17.3.1] injecting env (2) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+2026-03-13T00:59:40.860Z Proxy server running on port 3000
+2026-03-13T00:59:40.863Z PSM_BASE_URL: https://psm.emaservicios.com.ar/api
+2026-03-13T00:59:40.865Z PSM_USUARIO: rcarvajal@emaservicios.com.ar
+2026-03-13T00:59:44.916Z GET /api/informePiezas/tablaFiltradaOdt
+2026-03-13T00:59:44.919Z Getting token from PSM...
+2026-03-13T00:59:45.282Z Token obtained
+2026-03-13T00:59:45.283Z ODTs to PSM: https://psm.emaservicios.com.ar/api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=5000
+2026-03-13T01:01:28.870Z ODTs success: 200, got 39964 items
+2026-03-13T01:01:43.767Z POST /api/login
+2026-03-13T01:01:43.769Z Login request received
+2026-03-13T01:01:43.770Z Using cached token
+2026-03-13T01:01:43.944Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:01:43.945Z Using cached token
+2026-03-13T01:01:43.947Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:01:47.304Z Consumos success: 200
+2026-03-13T01:01:49.352Z GET /api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=500
+2026-03-13T01:01:49.353Z Using cached token
+2026-03-13T01:01:49.354Z ODTs to PSM: https://psm.emaservicios.com.ar/api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=5000
+2026-03-13T01:03:49.363Z ODTs error: timeout of 120000ms exceeded
+2026-03-13T01:04:39.658Z POST /api/login
+2026-03-13T01:04:39.659Z Login request received
+2026-03-13T01:04:39.660Z Using cached token
+2026-03-13T01:04:39.837Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:39.838Z Using cached token
+2026-03-13T01:04:39.838Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:40.140Z POST /api/login
+2026-03-13T01:04:40.141Z Login request received
+2026-03-13T01:04:40.141Z Using cached token
+2026-03-13T01:04:40.315Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:40.316Z Using cached token
+2026-03-13T01:04:40.317Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:41.910Z Consumos success: 200
+2026-03-13T01:04:42.532Z Consumos success: 200
+2026-03-13T01:04:52.014Z POST /api/login
+2026-03-13T01:04:52.015Z Login request received
+2026-03-13T01:04:52.016Z Using cached token
+2026-03-13T01:04:52.192Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:52.193Z Using cached token
+2026-03-13T01:04:52.194Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:04:53.598Z Consumos success: 200
+2026-03-13T01:04:55.884Z GET /api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=500
+2026-03-13T01:04:55.885Z Using cached token
+2026-03-13T01:04:55.886Z ODTs to PSM: https://psm.emaservicios.com.ar/api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=5000
+2026-03-13T01:06:55.900Z ODTs error: timeout of 120000ms exceeded
+2026-03-13T01:16:45.670Z POST /api/login
+2026-03-13T01:16:45.670Z Login request received
+2026-03-13T01:16:45.671Z Using cached token
+2026-03-13T01:16:45.846Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:16:45.846Z Using cached token
+2026-03-13T01:16:45.847Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:16:46.177Z POST /api/login
+2026-03-13T01:16:46.178Z Login request received
+2026-03-13T01:16:46.179Z Using cached token
+2026-03-13T01:16:46.361Z GET /api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:16:46.362Z Using cached token
+2026-03-13T01:16:46.362Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?fechaDesde=2026-03-13&fechaHasta=2026-03-13
+2026-03-13T01:16:49.357Z Consumos success: 200
+2026-03-13T01:16:49.608Z Consumos success: 200
+2026-03-13T01:27:05.909Z POST /api/login
+2026-03-13T01:27:05.909Z Login request received
+2026-03-13T01:27:05.910Z Using cached token
+2026-03-13T01:27:06.084Z GET /api/consumos?odt=31333360
+2026-03-13T01:27:06.085Z Using cached token
+2026-03-13T01:27:06.087Z Consumos to PSM: https://psm.emaservicios.com.ar/api/consumos?odt=31333360
+2026-03-13T01:27:07.193Z Consumos success: 200
+2026-03-13T01:29:45.046Z POST /api/login
+2026-03-13T01:29:45.047Z Login request received
+2026-03-13T01:29:45.048Z Using cached token
+2026-03-13T01:32:26.054Z POST /api/login
+2026-03-13T01:32:26.055Z Login request received
+2026-03-13T01:32:26.056Z Using cached token
+2026-03-13T01:36:46.367Z POST /api/login
+2026-03-13T01:36:46.368Z Login request received
+2026-03-13T01:36:46.368Z Using cached token
+2026-03-13T01:42:58.189Z POST /api/login
+2026-03-13T01:42:58.190Z Login request received
+2026-03-13T01:42:58.191Z Using cached token
+2026-03-13T01:46:55.932Z POST /api/login
+2026-03-13T01:46:55.933Z Login request received
+2026-03-13T01:46:55.933Z Using cached token
+2026-03-13T01:47:17.414Z POST /api/login
+2026-03-13T01:47:17.415Z Login request received
+2026-03-13T01:47:17.415Z Using cached token
+2026-03-13T01:59:31.613Z POST /api/login
+2026-03-13T01:59:31.614Z Login request received
+2026-03-13T01:59:31.615Z Using cached token
+2026-03-13T02:17:41.439Z POST /api/login
+2026-03-13T02:17:41.440Z Login request received
+2026-03-13T02:17:41.441Z Getting token from PSM...
+2026-03-13T02:17:41.553Z Token obtained
+2026-03-13T02:20:12.630Z POST /api/login
+2026-03-13T02:20:12.631Z Login request received
+2026-03-13T02:20:12.631Z Using cached token
+2026-03-13T02:31:27.439Z POST /api/login
+2026-03-13T02:31:27.440Z Login request received
+2026-03-13T02:31:27.440Z Using cached token
+2026-03-13T02:39:38.504Z POST /api/login
+2026-03-13T02:39:38.505Z Login request received
+2026-03-13T02:39:38.506Z Using cached token
+2026-03-13T02:51:40.393Z POST /api/login
+2026-03-13T02:51:40.394Z Login request received
+2026-03-13T02:51:40.394Z Using cached token
+2026-03-13T02:54:40.838Z POST /api/login
+2026-03-13T02:54:40.839Z Login request received
+2026-03-13T02:54:40.840Z Using cached token
+2026-03-13T02:57:41.302Z POST /api/login
+2026-03-13T02:57:41.303Z Login request received
+2026-03-13T02:57:41.304Z Using cached token
+2026-03-13T03:03:49.398Z POST /api/login
+2026-03-13T03:03:49.399Z Login request received
+2026-03-13T03:03:49.400Z Using cached token
+2026-03-13T03:05:13.843Z POST /api/login
+2026-03-13T03:05:13.844Z Login request received
+2026-03-13T03:05:13.844Z Using cached token
+2026-03-13T03:05:14.020Z GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:05:14.022Z No route matched: GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:05:32.534Z POST /api/login
+2026-03-13T03:05:32.535Z Login request received
+2026-03-13T03:05:32.536Z Using cached token
+2026-03-13T03:05:59.300Z GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:05:59.301Z No route matched: GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:08:17.690Z GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:08:17.690Z No route matched: GET /informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=10&codigoBarras=31305963
+2026-03-13T03:10:21.575Z POST /api/login
+2026-03-13T03:10:21.576Z Login request received
+2026-03-13T03:10:21.576Z Using cached token
+2026-03-13T03:11:49.683Z POST /api/login
+2026-03-13T03:11:49.683Z Login request received
+2026-03-13T03:11:49.685Z Using cached token
+2026-03-13T03:11:49.866Z GET /consumos?odt=31305963
+2026-03-13T03:11:49.866Z No route matched: GET /consumos?odt=31305963
+2026-03-13T03:23:55.435Z POST /api/login
+2026-03-13T03:23:55.436Z Login request received
+2026-03-13T03:23:55.437Z Getting token from PSM...
+2026-03-13T03:23:55.505Z Error getting token: Request failed with status code 502
+2026-03-13T03:23:55.506Z Login error: Request failed with status code 502
+3:23:55.505Z Error getting token: Request failed with status code 502
+2026-03-13T03:23:55.506Z Login error: Request failed with status code 502
