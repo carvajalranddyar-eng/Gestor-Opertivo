@@ -182,16 +182,19 @@ export async function GET(req: NextRequest) {
 
     odtsAgrupadas.forEach(v => detallePorOdt.push(v))
 
-    debug.step = 'building_response'
-
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock,
-      debug
+      stock: stock
     })
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message, debug }, { status: 500 })
+    // Return empty data instead of error for robustness
+    return NextResponse.json({
+      resumenCuadrillas: [],
+      detallePorOdt: [],
+      stock: [],
+      error: error.message
+    })
   }
 }
