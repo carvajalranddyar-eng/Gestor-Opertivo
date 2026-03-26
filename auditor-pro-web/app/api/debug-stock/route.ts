@@ -3,16 +3,21 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Get ALL data from stock_obrador to see what's there
-    const { data, error } = await supabase
-      .from('stock_obrador')
-      .select('*')
-      .limit(5)
-
+    // Check if we can connect to Supabase at all
+    const { data: version, error } = await supabase.rpc('version')
+    
+    // Try to list tables
+    const { data: tables, error: tablesError } = await supabase
+      .from('information_schema.tables')
+      .select('table_name')
+      .eq('table_schema', 'public')
+      .eq('table_type', 'BASE TABLE')
+    
     return NextResponse.json({
-      count: data?.length || 0,
-      error: error?.message || null,
-      sample: data
+      supabaseConnected: !error,
+      rpcError: error?.message || null,
+      tables: tables?.map(t => t.table_name) || [],
+      tablesError: tablesError?.message || null
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
