@@ -26,8 +26,8 @@ interface DetalleOdt {
 }
 
 interface Stock {
-  codigo_producto: string
-  descripcion: string
+  producto_codigo: string
+  producto_descripcion: string
   cantidad: number
   ubicacion?: string
 }
