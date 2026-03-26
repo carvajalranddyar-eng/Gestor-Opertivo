@@ -11,10 +11,16 @@ export async function GET() {
 
     if (error) throw error
 
-    // Get table schema
-    const { data: schema, error: schemaError } = await supabase
-      .rpc('get_table_columns', { table_name: 'stock_obrador' })
-      .catch(() => ({ data: null, error: null }))
+    // Get table schema (may fail if function doesn't exist)
+    let schema = null
+    let schemaError = null
+    try {
+      const result = await supabase.rpc('get_table_columns', { table_name: 'stock_obrador' })
+      schema = result.data
+      schemaError = result.error
+    } catch (e) {
+      schemaError = e
+    }
 
     return NextResponse.json({
       columns: data && data.length > 0 ? Object.keys(data[0]) : [],
