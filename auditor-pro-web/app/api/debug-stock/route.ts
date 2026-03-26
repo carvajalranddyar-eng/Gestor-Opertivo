@@ -3,21 +3,16 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Check if we can connect to Supabase at all
-    const { data: version, error } = await supabase.rpc('version')
-    
-    // Try to list tables
-    const { data: tables, error: tablesError } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_schema', 'public')
-      .eq('table_type', 'BASE TABLE')
+    // Try simple query
+    const { data: settings, error } = await supabase
+      .from('settings')
+      .select('key, value')
+      .limit(1)
     
     return NextResponse.json({
-      supabaseConnected: !error,
-      rpcError: error?.message || null,
-      tables: tables?.map(t => t.table_name) || [],
-      tablesError: tablesError?.message || null
+      test: 'settings query',
+      data: settings,
+      error: error?.message || null
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
