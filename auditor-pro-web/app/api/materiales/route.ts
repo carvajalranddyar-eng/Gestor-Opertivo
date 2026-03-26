@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     const { data: stock, error: errorStock } = await supabase
       .from('stock_obrador')
       .select('*')
-      .order('descripcion')
+      .order('producto_descripcion')
 
     if (errorStock) throw errorStock
 

@@ -78,7 +78,7 @@ export default function MaterialesPage() {
   })
 
   const filteredStock = stock.filter(s => {
-    if (search && !s.codigo_producto?.includes(search) && !s.descripcion?.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !s.producto_codigo?.includes(search) && !s.producto_descripcion?.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
@@ -327,8 +327,8 @@ export default function MaterialesPage() {
                 ) : (
                   filteredStock.map((s, i) => (
                     <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-sm font-mono">{s.codigo_producto}</td>
-                      <td className="px-4 py-3 text-sm">{s.descripcion}</td>
+                      <td className="px-4 py-3 text-sm font-mono">{s.producto_codigo}</td>
+                      <td className="px-4 py-3 text-sm">{s.producto_descripcion}</td>
                       <td className="px-4 py-3 text-sm text-right font-medium">{s.cantidad}</td>
                     </tr>
                   ))
