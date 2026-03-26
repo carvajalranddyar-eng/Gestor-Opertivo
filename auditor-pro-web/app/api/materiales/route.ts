@@ -2,62 +2,73 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
+  const debug: any = { step: 'start' }
+
   try {
     const { searchParams } = new URL(req.url)
     const cuadrilla = searchParams.get('cuadrilla')
     const desde = searchParams.get('desde')
     const hasta = searchParams.get('hasta')
 
+    debug.step = 'getting_consumos'
+
     // Obtener consumos
     let queryConsumos = supabase
       .from('consumos')
-      .select('*')
+      .select('odt_codigo, producto_codigo, producto_descripcion, cantidad, cuadrilla_descripcion, cuadrilla_codigo, fecha_consumo, series')
 
     if (cuadrilla) {
       queryConsumos = queryConsumos.ilike('cuadrilla_descripcion', `%${cuadrilla}%`)
     }
 
-    if (desde) {
-      queryConsumos = queryConsumos.gte('fecha_consumo', desde)
-    }
-
-    if (hasta) {
-      queryConsumos = queryConsumos.lte('fecha_consumo', hasta + 'T23:59:59')
-    }
-
     const { data: consumos, error: errorConsumos } = await queryConsumos
+
+    debug.consumosError = errorConsumos?.message || null
+    debug.consumosCount = consumos?.length || 0
 
     if (errorConsumos) throw errorConsumos
 
-    // Obtener movimientos (entradas = entregados)
-    let queryMovimientos = supabase
-      .from('movimientos_obrador')
-      .select('*')
-      .eq('tipo_movimiento', 'Entrada')
+    // Obtener movimientos (entradas = entregados) - hacer opcional
+    let movimientos: any[] = []
+    debug.step = 'getting_movimientos'
+    try {
+      let queryMovimientos = supabase
+        .from('movimientos_obrador')
+        .select('cuadrilla, codigo_producto, cantidad, tipo_movimiento, fecha')
+        .eq('tipo_movimiento', 'Entrada')
 
-    if (cuadrilla) {
-      queryMovimientos = queryMovimientos.ilike('cuadrilla', `%${cuadrilla}%`)
+      if (cuadrilla) {
+        queryMovimientos = queryMovimientos.ilike('cuadrilla', `%${cuadrilla}%`)
+      }
+
+      const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
+      debug.movimientosError = errorMovimientos?.message || null
+      debug.movimientosCount = movimientosData?.length || 0
+
+      if (!errorMovimientos && movimientosData) {
+        movimientos = movimientosData
+      }
+    } catch (e: any) {
+      debug.movimientosError = e.message
     }
 
-    if (desde) {
-      queryMovimientos = queryMovimientos.gte('fecha', desde)
+    // Obtener stock actual - hacer opcional
+    let stock: any[] = []
+    debug.step = 'getting_stock'
+    try {
+      const { data: stockData, error: errorStock } = await supabase
+        .from('stock_obrador')
+        .select('producto_codigo, producto_descripcion, cantidad')
+      
+      debug.stockError = errorStock?.message || null
+      debug.stockCount = stockData?.length || 0
+
+      if (!errorStock && stockData) {
+        stock = stockData
+      }
+    } catch (e: any) {
+      debug.stockError = e.message
     }
-
-    if (hasta) {
-      queryMovimientos = queryMovimientos.lte('fecha', hasta + 'T23:59:59')
-    }
-
-    const { data: movimientos, error: errorMovimientos } = await queryMovimientos
-
-    if (errorMovimientos) throw errorMovimientos
-
-    // Obtener stock actual
-    const { data: stock, error: errorStock } = await supabase
-      .from('stock_obrador')
-      .select('*')
-      .order('producto_descripcion')
-
-    if (errorStock) throw errorStock
 
     // Agrupar consumos por cuadrilla
     const consumosPorCuadrilla = new Map<string, {
@@ -171,13 +182,16 @@ export async function GET(req: NextRequest) {
 
     odtsAgrupadas.forEach(v => detallePorOdt.push(v))
 
+    debug.step = 'building_response'
+
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock || []
+      stock: stock,
+      debug
     })
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message, debug }, { status: 500 })
   }
 }
