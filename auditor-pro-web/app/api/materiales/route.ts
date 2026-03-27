@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     let movimientos: any[] = []
     debug.step = 'getting_movimientos'
     try {
+      // Get ALL movimientos without limit
       let queryMovimientos = supabase
         .from('movimientos_obrador')
         .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
@@ -40,10 +41,10 @@ export async function GET(req: NextRequest) {
         queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
       }
 
+      // Get up to 10000 records
       const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
       debug.movimientosError = errorMovimientos?.message || null
       debug.movimientosCount = movimientosData?.length || 0
-      debug.movimientosSample = movimientosData?.slice(0, 5)
 
       if (!errorMovimientos && movimientosData) {
         movimientos = movimientosData
@@ -125,9 +126,10 @@ export async function GET(req: NextRequest) {
 
       const data = movimientosPorCuadrilla.get(cuadrillaKey)!
       
-      // Count as delivered if it's a delivery type (not SALIDA/CONSUMO)
-      const esEntrega = m.tipo_movimiento && !m.tipo_movimiento.includes('SALIDA') && !m.tipo_movimiento.includes('CONSUMO')
-      if (esEntrega) {
+      // Count as delivered if it's NOT a consumption/salida type
+      // ENVIOS A OBRA, CONSUMO EN OBRA, etc.
+      const esConsumo = m.tipo_movimiento?.includes('CONSUMO') || m.tipo_movimiento?.includes('SALIDA')
+      if (!esConsumo && m.tipo_movimiento) {
         data.totalEntregado += m.cantidad || 0
       }
 
@@ -190,7 +192,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock
+      stock: stock,
+      debug: { step: debug.step, count: debug.movimientosCount }
     })
 
   } catch (error: any) {
