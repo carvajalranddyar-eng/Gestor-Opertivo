@@ -49,16 +49,11 @@ export async function POST(req: NextRequest) {
         const items = res.data.data || res.data.items || res.data || []
 
         if (Array.isArray(items) && items.length > 0) {
-          // Filtrar movimientos de SALIDA (CONSUMO) y ENTRADA (ENTREGA)
-          const movimientosFiltrados = items.filter((m: any) => 
-            m.movimiento?.tipo_movimiento?.tipo === 'SALIDA' ||
-            m.movimiento?.tipo_movimiento?.tipo === 'ENTRADA'
-          )
-          
-          todosMovimientos.push(...movimientosFiltrados)
+          // Get all movements - no filter
+          todosMovimientos.push(...items)
           paginasProcesadas++
           
-          if (movimientosFiltrados.length < LIMITE_POR_PAGINA) {
+          if (items.length < LIMITE_POR_PAGINA) {
             hayMas = false
           } else {
             page++
@@ -76,7 +71,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    detalle.push(`📊 ${todosMovimientos.length} movimientos (SALIDA + ENTRADA) traídos (${paginasProcesadas} páginas)`)
+    detalle.push(`📊 ${todosMovimientos.length} movimientos traídos (${paginasProcesadas} páginas)`)
 
   // Guardar en Supabase
   if (todosMovimientos.length > 0) {

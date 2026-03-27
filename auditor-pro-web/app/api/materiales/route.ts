@@ -35,7 +35,6 @@ export async function GET(req: NextRequest) {
       let queryMovimientos = supabase
         .from('movimientos_obrador')
         .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
-        .in('tipo_movimiento', ['SALIDA', 'ENTRADA'])
 
       if (cuadrilla) {
         queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
@@ -44,7 +43,7 @@ export async function GET(req: NextRequest) {
       const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
       debug.movimientosError = errorMovimientos?.message || null
       debug.movimientosCount = movimientosData?.length || 0
-      debug.movimientosSample = movimientosData?.slice(0, 2)
+      debug.movimientosSample = movimientosData?.slice(0, 5)
 
       if (!errorMovimientos && movimientosData) {
         movimientos = movimientosData
@@ -126,8 +125,9 @@ export async function GET(req: NextRequest) {
 
       const data = movimientosPorCuadrilla.get(cuadrillaKey)!
       
-      // Only count ENTRADA as delivered
-      if (m.tipo_movimiento === 'ENTRADA') {
+      // Count as delivered if it's a delivery type (not SALIDA/CONSUMO)
+      const esEntrega = m.tipo_movimiento && !m.tipo_movimiento.includes('SALIDA') && !m.tipo_movimiento.includes('CONSUMO')
+      if (esEntrega) {
         data.totalEntregado += m.cantidad || 0
       }
 
