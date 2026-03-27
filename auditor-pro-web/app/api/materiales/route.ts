@@ -34,16 +34,17 @@ export async function GET(req: NextRequest) {
     try {
       let queryMovimientos = supabase
         .from('movimientos_obrador')
-        .select('cuadrilla, codigo_producto, cantidad, tipo_movimiento, fecha')
-        .eq('tipo_movimiento', 'Entrada')
+        .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+        .in('tipo_movimiento', ['SALIDA', 'ENTRADA'])
 
       if (cuadrilla) {
-        queryMovimientos = queryMovimientos.ilike('cuadrilla', `%${cuadrilla}%`)
+        queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
       }
 
       const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
       debug.movimientosError = errorMovimientos?.message || null
       debug.movimientosCount = movimientosData?.length || 0
+      debug.movimientosSample = movimientosData?.slice(0, 2)
 
       if (!errorMovimientos && movimientosData) {
         movimientos = movimientosData
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
     }>()
 
     movimientos?.forEach(m => {
-      const cuadrillaKey = m.cuadrilla || 'Sin cuadrilla'
+      const cuadrillaKey = m.cuadrilla_nombre || 'Sin cuadrilla'
       
       if (!movimientosPorCuadrilla.has(cuadrillaKey)) {
         movimientosPorCuadrilla.set(cuadrillaKey, {
@@ -124,13 +125,17 @@ export async function GET(req: NextRequest) {
       }
 
       const data = movimientosPorCuadrilla.get(cuadrillaKey)!
-      data.totalEntregado += m.cantidad || 0
+      
+      // Only count ENTRADA as delivered
+      if (m.tipo_movimiento === 'ENTRADA') {
+        data.totalEntregado += m.cantidad || 0
+      }
 
-      const matKey = m.codigo_producto
+      const matKey = m.producto_codigo
       if (!data.materiales.has(matKey)) {
         data.materiales.set(matKey, {
-          codigo: m.codigo_producto,
-          descripcion: m.descripcion_producto || m.descripcion,
+          codigo: m.producto_codigo,
+          descripcion: '',
           cantidad: 0
         })
       }
@@ -185,7 +190,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock
+      stock: stock,
+      debug: {
+        step: debug.step,
+        movimientosCount: debug.movimientosCount,
+        movimientosError: debug.movimientosError,
+        movimientosSample: debug.movimientosSample
+      }
     })
 
   } catch (error: any) {
