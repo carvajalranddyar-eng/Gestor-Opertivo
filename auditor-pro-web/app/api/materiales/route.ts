@@ -32,16 +32,16 @@ export async function GET(req: NextRequest) {
     let movimientos: any[] = []
     debug.step = 'getting_movimientos'
     try {
-      // Get ALL movimientos without limit
+      // Get ALL movimientos - use range to get up to 10000
       let queryMovimientos = supabase
         .from('movimientos_obrador')
         .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+        .range(0, 9999)
 
       if (cuadrilla) {
         queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
       }
 
-      // Get up to 10000 records
       const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
       debug.movimientosError = errorMovimientos?.message || null
       debug.movimientosCount = movimientosData?.length || 0
@@ -192,8 +192,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock,
-      debug: { step: debug.step, count: debug.movimientosCount }
+      stock: stock
     })
 
   } catch (error: any) {
