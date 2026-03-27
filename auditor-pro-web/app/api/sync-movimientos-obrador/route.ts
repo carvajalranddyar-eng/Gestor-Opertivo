@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
           todosMovimientos.push(...movimientosFiltrados)
           paginasProcesadas++
           
-          if (movimientosSalida.length < LIMITE_POR_PAGINA) {
+          if (movimientosFiltrados.length < LIMITE_POR_PAGINA) {
             hayMas = false
           } else {
             page++
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    detalle.push(`📊 ${todosMovimientos.length} movimientos de SALIDA traídos (${paginasProcesadas} páginas)`)
+    detalle.push(`📊 ${todosMovimientos.length} movimientos (SALIDA + ENTRADA) traídos (${paginasProcesadas} páginas)`)
 
   // Guardar en Supabase
   if (todosMovimientos.length > 0) {
