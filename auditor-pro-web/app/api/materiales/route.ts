@@ -30,21 +30,41 @@ export async function GET(req: NextRequest) {
 
     // Obtener movimientos (entradas = entregados) - hacer opcional
     let movimientos: any[] = []
+    // Obtener movimientos (entradas = entregados) - hacer opcional
+    let movimientos: any[] = []
     debug.step = 'getting_movimientos'
     try {
-      // Get ALL movimientos - use range to get up to 10000
-      let queryMovimientos = supabase
-        .from('movimientos_obrador')
-        .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
-        .range(0, 9999)
+      // Fetch in multiple batches to get more than 1000
+      const BATCH_SIZE = 1000
+      let offset = 0
+      let hasMore = true
+      
+      while (hasMore) {
+        let queryMovimientos = supabase
+          .from('movimientos_obrador')
+          .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+          .range(offset, offset + BATCH_SIZE - 1)
 
-      if (cuadrilla) {
-        queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
+        if (cuadrilla) {
+          queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
+        }
+
+        const { data: batch, error: errorMovimientos } = await queryMovimientos
+        
+        if (errorMovimientos) {
+          debug.movimientosError = errorMovimientos.message
+          break
+        }
+        
+        if (batch && batch.length > 0) {
+          movimientos.push(...batch)
+          offset += BATCH_SIZE
+        } else {
+          hasMore = false
+        }
       }
-
-      const { data: movimientosData, error: errorMovimientos } = await queryMovimientos
-      debug.movimientosError = errorMovimientos?.message || null
-      debug.movimientosCount = movimientosData?.length || 0
+      
+      debug.movimientosCount = movimientos.length
 
       if (!errorMovimientos && movimientosData) {
         movimientos = movimientosData
