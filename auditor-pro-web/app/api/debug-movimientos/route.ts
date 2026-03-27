@@ -3,21 +3,15 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
+    // Get sample of all tipos
     const { data, error } = await supabase
       .from('movimientos_obrador')
-      .select('tipo_movimiento')
+      .select('tipo_movimiento, cantidad, cuadrilla_nombre')
+      .limit(20)
     
     if (error) throw error
     
-    const counts: Record<string, number> = {}
-    data?.forEach(m => {
-      counts[m.tipo_movimiento] = (counts[m.tipo_movimiento] || 0) + 1
-    })
-    
-    return NextResponse.json({
-      total: data?.length || 0,
-      breakdown: counts
-    })
+    return NextResponse.json({ sample: data })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
