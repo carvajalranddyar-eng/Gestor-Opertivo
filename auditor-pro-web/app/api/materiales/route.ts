@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     if (errorConsumos) throw errorConsumos
 
     // Obtener movimientos (entradas = entregados)
+    let movimientos: any[] = []
     debug.step = 'getting_movimientos'
     try {
       // Fetch in multiple batches to get more than 1000
