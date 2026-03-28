@@ -177,61 +177,100 @@ export async function GET(req: NextRequest) {
       data.materiales.get(matKey)!.cantidad += m.cantidad || 0
     })
 
-    // Construir resumen por cuadrilla
-    const resumenCuadrillas: any[] = []
-    const todasCuadrillas = new Set([
-      ...consumosPorCuadrilla.keys(),
-      ...movimientosPorCuadrilla.keys()
-    ])
+    // CONSTRUIR BALANCE GENERAL POR MATERIAL
+    const balancePorMaterial = new Map<string, {
+      codigo: string
+      descripcion: string
+      totalEntregado: number
+      totalConsumido: number
+      stock: number
+      porCuadrilla: Map<string, {
+        entregado: number
+        consumido: number
+        odts: { odt: string, cantidad: number }[]
+      }>
+    }>()
 
-    todasCuadrillas.forEach(c => {
-      const consumido = consumosPorCuadrilla.get(c)?.totalMateriales || 0
-      const entregado = movimientosPorCuadrilla.get(c)?.totalEntregado || 0
-      // Prefer name over code
-      const nombre = consumosPorCuadrilla.get(c)?.cuadrilla || movimientosPorCuadrilla.get(c)?.cuadrilla || c
-      
-      // Get materials breakdown
-      const matsEntregado: any[] = []
-      const matsConsumido: any[] = []
-      
-      // Merge materials from both sources
-      const allMaterials = new Map<string, { descripcion: string, entregado: number, consumido: number }>()
-      
-      // Add from movimientos (entregado)
-      movimientosPorCuadrilla.get(c)?.materiales.forEach((m, codigo) => {
-        allMaterials.set(codigo, { descripcion: m.descripcion, entregado: m.cantidad, consumido: 0 })
-      })
-      
-      // Add from consumos (consumido)
-      consumosPorCuadrilla.get(c)?.materiales.forEach((m, codigo) => {
-        if (allMaterials.has(codigo)) {
-          allMaterials.get(codigo)!.consumido = m.cantidad
-        } else {
-          allMaterials.set(codigo, { descripcion: m.descripcion, entregado: 0, consumido: m.cantidad })
-        }
-      })
-      
-      // Convert to array
-      allMaterials.forEach((v, codigo) => {
-        matsEntregado.push({ codigo, ...v })
-        matsConsumido.push({ codigo, ...v })
-      })
-      
-      resumenCuadrillas.push({
-        cuadrilla: nombre,
-        entregado,
-        consumido,
-        balance: entregado - consumido,
-        odts: consumosPorCuadrilla.get(c)?.odts?.size || 0,
-        materiales: Array.from(allMaterials.entries()).map(([codigo, v]) => ({
+    // Procesar movimientos (entregas)
+    movimientos?.forEach(m => {
+      const codigo = m.producto_codigo
+      if (!balancePorMaterial.has(codigo)) {
+        balancePorMaterial.set(codigo, {
           codigo,
-          descripcion: v.descripcion,
-          entregado: v.entregado,
-          consumido: v.consumido,
-          balance: v.entregado - v.consumido
-        })).sort((a, b) => b.consumido - a.consumido)
-      })
+          descripcion: m.producto_descripcion || '',
+          totalEntregado: 0,
+          totalConsumido: 0,
+          stock: 0,
+          porCuadrilla: new Map()
+        })
+      }
+      
+      const data = balancePorMaterial.get(codigo)!
+      const cuadrillaKey = m.cuadrilla_codigo || m.cuadrilla_nombre || 'Sin cuadrilla'
+      
+      const esConsumo = m.tipo_movimiento?.includes('CONSUMO') || m.tipo_movimiento?.includes('SALIDA')
+      if (!esConsumo) {
+        data.totalEntregado += m.cantidad || 0
+        
+        if (!data.porCuadrilla.has(cuadrillaKey)) {
+          data.porCuadrilla.set(cuadrillaKey, { entregado: 0, consumido: 0, odts: [] })
+        }
+        data.porCuadrilla.get(cuadrillaKey)!.entregado += m.cantidad || 0
+      }
     })
+
+    // Procesar consumos (PSM)
+    consumos?.forEach(c => {
+      const codigo = c.producto_codigo
+      if (!balancePorMaterial.has(codigo)) {
+        balancePorMaterial.set(codigo, {
+          codigo,
+          descripcion: c.producto_descripcion || '',
+          totalEntregado: 0,
+          totalConsumido: 0,
+          stock: 0,
+          porCuadrilla: new Map()
+        })
+      }
+      
+      const data = balancePorMaterial.get(codigo)!
+      data.totalConsumido += c.cantidad || 1
+      
+      const cuadrillaKey = c.cuadrilla_codigo || c.cuadrilla_descripcion || 'Sin cuadrilla'
+      
+      if (!data.porCuadrilla.has(cuadrillaKey)) {
+        data.porCuadrilla.set(cuadrillaKey, { entregado: 0, consumido: 0, odts: [] })
+      }
+      
+      const cuadData = data.porCuadrilla.get(cuadrillaKey)!
+      cuadData.consumido += c.cantidad || 1
+      cuadData.odts.push({ odt: String(c.odt_codigo), cantidad: c.cantidad || 1 })
+    })
+
+    // Agregar stock
+    stock?.forEach(s => {
+      const codigo = s.producto_codigo
+      if (balancePorMaterial.has(codigo)) {
+        balancePorMaterial.get(codigo)!.stock = s.cantidad || 0
+      }
+    })
+
+    // Convertir a array
+    const balanceGeneral = Array.from(balancePorMaterial.values()).map(m => ({
+      codigo: m.codigo,
+      descripcion: m.descripcion,
+      entregado: m.totalEntregado,
+      consumido: m.totalConsumido,
+      stock: m.stock,
+      balance: m.totalEntregado - m.totalConsumido,
+      porCuadrilla: Array.from(m.porCuadrilla.entries()).map(([cuadrilla, data]) => ({
+        cuadrilla,
+        entregado: data.entregado,
+        consumido: data.consumido,
+        balance: data.entregado - data.consumido,
+        odts: data.odts
+      })).sort((a, b) => b.consumido - a.consumido)
+    })).sort((a, b) => b.consumido - a.consumido)
 
     // Construir detalle por ODT
     const detallePorOdt: any[] = []
@@ -259,7 +298,7 @@ export async function GET(req: NextRequest) {
     odtsAgrupadas.forEach(v => detallePorOdt.push(v))
 
     return NextResponse.json({
-      resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
+      balanceGeneral,
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
       stock: stock
     })
