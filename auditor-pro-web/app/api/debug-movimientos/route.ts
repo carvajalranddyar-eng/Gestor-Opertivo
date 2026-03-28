@@ -3,22 +3,23 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Get code mapping between PSM and Obrador
-    // From consumos (PSM)
-    const { data: consumos } = await supabase
+    // Check if cuadrilla_codigo exists in consumos
+    const { data, error } = await supabase
       .from('consumos')
       .select('cuadrilla_codigo, cuadrilla_descripcion')
+      .not('cuadrilla_codigo', 'is', null)
       .limit(10)
     
-    // From movimientos (Obrador) 
-    const { data: movimientos } = await supabase
-      .from('movimientos_obrador')
-      .select('cuadrilla_codigo, cuadrilla_nombre')
-      .limit(10)
+    if (error) throw error
     
-    return NextResponse.json({
-      psm: consumos?.map(c => ({ code: c.cuadrilla_codigo, name: c.cuadrilla_descripcion })),
-      obrador: movimientos?.map(m => ({ code: m.cuadrilla_codigo, name: m.cuadrilla_nombre }))
+    const withCode = data?.filter(c => c.cuadrilla_codigo) || []
+    const withoutCode = data?.filter(c => !c.cuadrilla_codigo) || []
+    
+    return NextResponse.json({ 
+      withCode: withCode.length,
+      withoutCode: withoutCode.length,
+      sampleWith: withCode.slice(0, 5),
+      sampleWithout: withoutCode.slice(0, 5)
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
