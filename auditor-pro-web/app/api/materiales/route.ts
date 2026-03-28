@@ -63,6 +63,15 @@ export async function GET(req: NextRequest) {
       }
       
       debug.movimientosCount = movimientos.length
+      
+      // Debug: what types are we counting as delivery?
+      const typesCount: Record<string, number> = {}
+      movimientos.forEach(m => {
+        const esConsumo = m.tipo_movimiento?.includes('CONSUMO') || m.tipo_movimiento?.includes('SALIDA')
+        const type = esConsumo ? 'CONSUMO' : 'ENTREGA'
+        typesCount[type] = (typesCount[type] || 0) + (m.cantidad || 0)
+      })
+      debug.consumedTypes = typesCount
     } catch (e: any) {
       debug.movimientosError = e.message
     }
@@ -206,7 +215,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock
+      stock: stock,
+      debug: { 
+        movimientosCount: debug.movimientosCount,
+        movimientosError: debug.movimientosError,
+        consumedTypes: debug.consumedTypes
+      }
     })
 
   } catch (error: any) {
