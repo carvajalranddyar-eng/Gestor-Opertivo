@@ -3,17 +3,26 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Get unique tipos
-    const { data, error } = await supabase
+    // Get unique cuadrillas from consumos (PSM)
+    const { data: consumosCuadrillas } = await supabase
+      .from('consumos')
+      .select('cuadrilla_descripcion')
+      .limit(100)
+    
+    const cuadrillasPSM = [...new Set(consumosCuadrillas?.map(c => c.cuadrilla_descripcion).filter(Boolean))]
+    
+    // Get unique cuadrillas from movimientos (Obrador)
+    const { data: movimientosCuadrillas } = await supabase
       .from('movimientos_obrador')
-      .select('tipo_movimiento')
-      .limit(1000)
+      .select('cuadrilla_nombre')
+      .limit(100)
     
-    if (error) throw error
+    const cuadrillasObrador = [...new Set(movimientosCuadrillas?.map(m => m.cuadrilla_nombre).filter(Boolean))]
     
-    const tipos = [...new Set(data?.map(m => m.tipo_movimiento))]
-    
-    return NextResponse.json({ tipos, total: data?.length })
+    return NextResponse.json({
+      psmm: cuadrillasPSM.slice(0, 10),
+      obrador: cuadrillasObrador.slice(0, 10)
+    })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

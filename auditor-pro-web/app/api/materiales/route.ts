@@ -215,12 +215,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       resumenCuadrillas: resumenCuadrillas.sort((a, b) => b.consumido - a.consumido),
       detallePorOdt: detallePorOdt.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
-      stock: stock,
-      debug: { 
-        movimientosCount: debug.movimientosCount,
-        movimientosError: debug.movimientosError,
-        consumedTypes: debug.consumedTypes
-      }
+      stock: stock
     })
 
   } catch (error: any) {
