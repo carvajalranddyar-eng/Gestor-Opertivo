@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
       .select('odt_codigo, producto_codigo, producto_descripcion, cantidad, cuadrilla_descripcion, cuadrilla_codigo, fecha_consumo, series')
 
     if (cuadrilla) {
-      queryConsumos = queryConsumos.ilike('cuadrilla_descripcion', `%${cuadrilla}%`)
+      // Search by name OR code
+      queryConsumos = queryConsumos.or(`cuadrilla_descripcion.ilike.%${cuadrilla}%,cuadrilla_codigo.eq.${cuadrilla}`)
     }
 
     const { data: consumos, error: errorConsumos } = await queryConsumos
@@ -40,11 +41,12 @@ export async function GET(req: NextRequest) {
       while (hasMore) {
         let queryMovimientos = supabase
           .from('movimientos_obrador')
-          .select('cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+          .select('cuadrilla_nombre, cuadrilla_codigo, producto_codigo, cantidad, tipo_movimiento, fecha')
           .range(offset, offset + BATCH_SIZE - 1)
 
         if (cuadrilla) {
-          queryMovimientos = queryMovimientos.ilike('cuadrilla_nombre', `%${cuadrilla}%`)
+          // Search by name OR code
+          queryMovimientos = queryMovimientos.or(`cuadrilla_nombre.ilike.%${cuadrilla}%,cuadrilla_codigo.eq.${cuadrilla}`)
         }
 
         const { data: batch, error: errorMovimientos } = await queryMovimientos
@@ -94,20 +96,24 @@ export async function GET(req: NextRequest) {
       debug.stockError = e.message
     }
 
-    // Agrupar consumos por cuadrilla
+    // Agrupar consumos por cuadrilla (usar código como key principal)
     const consumosPorCuadrilla = new Map<string, {
       cuadrilla: string
+      codigo: string
       totalMateriales: number
       odts: Set<string>
       materiales: Map<string, { codigo: string, descripcion: string, cantidad: number }>
     }>()
 
     consumos?.forEach(c => {
-      const cuadrillaKey = c.cuadrilla_descripcion || c.cuadrilla_codigo || 'Sin cuadrilla'
+      // Usar código como key principal, sino el nombre
+      const cuadrillaKey = c.cuadrilla_codigo || c.cuadrilla_descripcion || 'Sin cuadrilla'
+      const cuadrillaName = c.cuadrilla_descripcion || 'Sin cuadrilla'
       
       if (!consumosPorCuadrilla.has(cuadrillaKey)) {
         consumosPorCuadrilla.set(cuadrillaKey, {
-          cuadrilla: cuadrillaKey,
+          cuadrilla: cuadrillaName,
+          codigo: c.cuadrilla_codigo || '',
           totalMateriales: 0,
           odts: new Set(),
           materiales: new Map()
@@ -129,19 +135,23 @@ export async function GET(req: NextRequest) {
       data.materiales.get(matKey)!.cantidad += c.cantidad || 1
     })
 
-    // Agrupar movimientos por cuadrilla
+    // Agrupar movimientos por cuadrilla (usar código como key principal)
     const movimientosPorCuadrilla = new Map<string, {
       cuadrilla: string
+      codigo: string
       totalEntregado: number
       materiales: Map<string, { codigo: string, descripcion: string, cantidad: number }>
     }>()
 
     movimientos?.forEach(m => {
-      const cuadrillaKey = m.cuadrilla_nombre || 'Sin cuadrilla'
+      // Usar código como key principal, sinon el nombre
+      const cuadrillaKey = m.cuadrilla_codigo || m.cuadrilla_nombre || 'Sin cuadrilla'
+      const cuadrillaName = m.cuadrilla_nombre || 'Sin cuadrilla'
       
       if (!movimientosPorCuadrilla.has(cuadrillaKey)) {
         movimientosPorCuadrilla.set(cuadrillaKey, {
-          cuadrilla: cuadrillaKey,
+          cuadrilla: cuadrillaName,
+          codigo: m.cuadrilla_codigo || '',
           totalEntregado: 0,
           materiales: new Map()
         })
