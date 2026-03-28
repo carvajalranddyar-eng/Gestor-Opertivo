@@ -221,7 +221,7 @@ export async function GET(req: NextRequest) {
       const stock_real = m.stock_odt.reduce((sum: number, s: any) => sum + (s.cantidad || 0), 0)
       
       // Por cuadrilla
-      m.por_cuadrilla.forEach((cuad, key) => {
+      m.por_cuadrilla.forEach((cuad: any, key: any) => {
         cuad.balance = cuad.entregas_cantidad - cuad.consumos_cantidad
       })
       
