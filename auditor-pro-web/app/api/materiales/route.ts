@@ -190,12 +190,46 @@ export async function GET(req: NextRequest) {
       // Prefer name over code
       const nombre = consumosPorCuadrilla.get(c)?.cuadrilla || movimientosPorCuadrilla.get(c)?.cuadrilla || c
       
+      // Get materials breakdown
+      const matsEntregado: any[] = []
+      const matsConsumido: any[] = []
+      
+      // Merge materials from both sources
+      const allMaterials = new Map<string, { descripcion: string, entregado: number, consumido: number }>()
+      
+      // Add from movimientos (entregado)
+      movimientosPorCuadrilla.get(c)?.materiales.forEach((m, codigo) => {
+        allMaterials.set(codigo, { descripcion: m.descripcion, entregado: m.cantidad, consumido: 0 })
+      })
+      
+      // Add from consumos (consumido)
+      consumosPorCuadrilla.get(c)?.materiales.forEach((m, codigo) => {
+        if (allMaterials.has(codigo)) {
+          allMaterials.get(codigo)!.consumido = m.cantidad
+        } else {
+          allMaterials.set(codigo, { descripcion: m.descripcion, entregado: 0, consumido: m.cantidad })
+        }
+      })
+      
+      // Convert to array
+      allMaterials.forEach((v, codigo) => {
+        matsEntregado.push({ codigo, ...v })
+        matsConsumido.push({ codigo, ...v })
+      })
+      
       resumenCuadrillas.push({
         cuadrilla: nombre,
         entregado,
         consumido,
         balance: entregado - consumido,
-        odts: consumosPorCuadrilla.get(c)?.odts?.size || 0
+        odts: consumosPorCuadrilla.get(c)?.odts?.size || 0,
+        materiales: Array.from(allMaterials.entries()).map(([codigo, v]) => ({
+          codigo,
+          descripcion: v.descripcion,
+          entregado: v.entregado,
+          consumido: v.consumido,
+          balance: v.entregado - v.consumido
+        })).sort((a, b) => b.consumido - a.consumido)
       })
     })
 

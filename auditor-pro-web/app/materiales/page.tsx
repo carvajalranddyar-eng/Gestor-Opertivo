@@ -9,6 +9,13 @@ interface ResumenCuadrilla {
   consumido: number
   balance: number
   odts: number
+  materiales: {
+    codigo: string
+    descripcion: string
+    entregado: number
+    consumido: number
+    balance: number
+  }[]
 }
 
 interface Material {
@@ -40,6 +47,7 @@ export default function MaterialesPage() {
   const [search, setSearch] = useState('')
   const [cuadrillaFilter, setCuadrillaFilter] = useState('')
   const [expandedOdt, setExpandedOdt] = useState<string | null>(null)
+  const [expandedCuadrilla, setExpandedCuadrilla] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'resumen' | 'detalle' | 'stock'>('resumen')
 
   const loadData = async () => {
@@ -186,6 +194,7 @@ export default function MaterialesPage() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
+                  <th className="w-8 px-2"></th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Cuadrilla</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600">Entregado</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600">Consumido</th>
@@ -196,34 +205,83 @@ export default function MaterialesPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-8 text-slate-400">
+                    <td colSpan={6} className="text-center py-8 text-slate-400">
                       <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
                       Cargando...
                     </td>
                   </tr>
                 ) : filteredResumen.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-8 text-slate-400">
+                    <td colSpan={6} className="text-center py-8 text-slate-400">
                       No hay datos
                     </td>
                   </tr>
                 ) : (
                   filteredResumen.map((r, i) => (
-                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-sm text-slate-800">{r.cuadrilla || 'Sin cuadrilla'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">{r.entregado}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">{r.consumido}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`inline-flex items-center gap-1 text-sm font-medium ${
-                          r.balance > 0 ? 'text-emerald-600' :
-                          r.balance < 0 ? 'text-rose-600' : 'text-slate-500'
-                        }`}>
-                          {r.balance > 0 ? <TrendingUp size={14} /> : r.balance < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
-                          {r.balance}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right text-slate-500">{r.odts}</td>
-                    </tr>
+                    <React.Fragment key={i}>
+                      <tr className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-2">
+                          <button 
+                            onClick={() => setExpandedCuadrilla(expandedCuadrilla === r.cuadrilla ? null : r.cuadrilla)}
+                            className="p-1 hover:bg-slate-100 rounded"
+                          >
+                            {expandedCuadrilla === r.cuadrilla ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-800 font-medium">{r.cuadrilla || 'Sin cuadrilla'}</td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-blue-600">{r.entregado}</td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-amber-600">{r.consumido}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`inline-flex items-center gap-1 text-sm font-bold ${
+                            r.balance > 0 ? 'text-emerald-600' :
+                            r.balance < 0 ? 'text-rose-600' : 'text-slate-500'
+                          }`}>
+                            {r.balance > 0 ? <TrendingUp size={14} /> : r.balance < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
+                            {r.balance}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-slate-500">{r.odts}</td>
+                      </tr>
+                      {expandedCuadrilla === r.cuadrilla && r.materiales && r.materiales.length > 0 && (
+                        <tr className="bg-slate-50">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="ml-8">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-slate-500">
+                                    <th className="text-left py-2">Código</th>
+                                    <th className="text-left py-2">Material</th>
+                                    <th className="text-right py-2">Entregado</th>
+                                    <th className="text-right py-2">Consumido</th>
+                                    <th className="text-right py-2">Balance</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {r.materiales.slice(0, 10).map((m, j) => (
+                                    <tr key={j} className="border-t border-slate-200">
+                                      <td className="py-1.5 font-mono text-slate-600">{m.codigo}</td>
+                                      <td className="py-1.5 text-slate-700 truncate max-w-xs">{m.descripcion}</td>
+                                      <td className="py-1.5 text-right text-blue-600">{m.entregado}</td>
+                                      <td className="py-1.5 text-right text-amber-600">{m.consumido}</td>
+                                      <td className={`py-1.5 text-right font-medium ${
+                                        m.balance > 0 ? 'text-emerald-600' : m.balance < 0 ? 'text-rose-600' : 'text-slate-500'
+                                      }`}>{m.balance}</td>
+                                    </tr>
+                                  ))}
+                                  {r.materiales.length > 10 && (
+                                    <tr>
+                                      <td colSpan={5} className="py-2 text-center text-slate-400 text-xs">
+                                        ... y {r.materiales.length - 10} materiales más
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))
                 )}
               </tbody>
