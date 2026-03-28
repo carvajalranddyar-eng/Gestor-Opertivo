@@ -3,15 +3,18 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Try to get column names from stock_obrador
+    // Try to get column names from stock_obrador by inserting a test record
     const { data, error } = await supabase
       .from('stock_obrador')
-      .select('*')
-      .limit(1)
+      .insert({
+        cuadrilla_codigo: 'TEST',
+        producto_codigo: 'TEST',
+        cantidad: 1
+      })
+      .select()
     
     return NextResponse.json({ 
-      columns: data ? Object.keys(data[0] || {}) : [],
-      sample: data,
+      result: data,
       error: error?.message
     })
   } catch (error: any) {
