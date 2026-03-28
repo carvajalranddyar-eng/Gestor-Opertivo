@@ -26,11 +26,13 @@ export async function GET(req: NextRequest) {
 
     // 2. OBTENER MOVIMIENTOS/ENTREGAS (OBRADOR)
     let movimientos: any[] = []
-    const BATCH_SIZE = 1000
+    const BATCH_SIZE = 2000  // Increase batch size
     let offset = 0
     let hasMore = true
+    let totalFetched = 0
+    const MAX_RECORDS = 50000  // Max records to fetch
     
-    while (hasMore) {
+    while (hasMore && totalFetched < MAX_RECORDS) {
       let queryMovimientos = supabase
         .from('movimientos_obrador')
         .select('*')
@@ -46,11 +48,15 @@ export async function GET(req: NextRequest) {
       
       if (batch && batch.length > 0) {
         movimientos.push(...batch)
+        totalFetched += batch.length
         offset += BATCH_SIZE
       } else {
         hasMore = false
       }
     }
+    
+    //debug
+    console.log('Total movimientos fetched:', totalFetched)
 
     // 3. OBTENER STOCK ACTUAL (OBRADOR)
     let stockObrador: any[] = []
