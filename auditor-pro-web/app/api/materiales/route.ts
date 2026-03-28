@@ -187,9 +187,11 @@ export async function GET(req: NextRequest) {
     todasCuadrillas.forEach(c => {
       const consumido = consumosPorCuadrilla.get(c)?.totalMateriales || 0
       const entregado = movimientosPorCuadrilla.get(c)?.totalEntregado || 0
+      // Prefer name over code
+      const nombre = consumosPorCuadrilla.get(c)?.cuadrilla || movimientosPorCuadrilla.get(c)?.cuadrilla || c
       
       resumenCuadrillas.push({
-        cuadrilla: c,
+        cuadrilla: nombre,
         entregado,
         consumido,
         balance: entregado - consumido,
