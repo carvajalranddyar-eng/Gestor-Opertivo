@@ -128,13 +128,20 @@ export async function POST(req: NextRequest) {
       const stockParaGuardar = [...stockMapeado, ...serializadosMapeados] // guardar todo el stock
 
       // Insert in smaller batches with error handling
-      for (let i = 0; i < Math.min(stockParaGuardar.length, 2000); i += 100) {
-        const batch = stockParaGuardar.slice(i, i + 100)
+      const MAX_REGISTROS = 10000
+      const TAMANO_BATCH = 50
+      
+      for (let i = 0; i < Math.min(stockParaGuardar.length, MAX_REGISTROS); i += TAMANO_BATCH) {
+        const batch = stockParaGuardar.slice(i, i + TAMANO_BATCH)
         const { error: insertError } = await supabase.from('stock_obrador').insert(batch)
         if (insertError) {
           detalle.push(`⚠️ Error insertando batch ${i}: ${insertError.message}`)
         } else {
           registros_procesados += batch.length
+        }
+        // Pausa pequeña entre batches para no saturar
+        if (i + TAMANO_BATCH < Math.min(stockParaGuardar.length, MAX_REGISTROS)) {
+          await pausar(100)
         }
       }
 
