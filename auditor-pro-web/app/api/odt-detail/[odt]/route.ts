@@ -76,7 +76,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ odt:
     }
 
     // Buscar stock entregado a esta cuadrilla en Obrador
-    let stockEntregado = []
+    let stockEntregado: any[] = []
     if (odtData?.cuadrilla_nombre) {
       const { data: stock } = await supabase
         .from('stock')
