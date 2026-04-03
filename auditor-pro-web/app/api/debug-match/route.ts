@@ -3,49 +3,63 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    // Get ALL unique odt_codigo from consumos
-    const { data: allConsumos } = await supabase
-      .from('consumos')
-      .select('odt_codigo')
-
-    const uniqueConsumoCodes = new Set(allConsumos?.map(c => c.odt_codigo) || [])
-    const uniqueCount = uniqueConsumoCodes.size
+    // Get ALL unique odt_codigo from consumos in batches
+    const allConsumoCodes = new Set<string>()
+    let offset = 0
+    const batchSize = 1000
     
-    // Get ALL unique codigo_barras from odts
-    const { data: allOdts } = await supabase
-      .from('odts')
-      .select('codigo_barras')
+    while (true) {
+      const { data: batch } = await supabase
+        .from('consumos')
+        .select('odt_codigo')
+        .range(offset, offset + batchSize - 1)
+      
+      if (!batch || batch.length === 0) break
+      
+      batch.forEach(c => {
+        if (c.odt_codigo) allConsumoCodes.add(c.odt_codigo)
+      })
+      
+      if (batch.length < batchSize) break
+      offset += batchSize
+    }
 
-    const uniqueOdtsCodes = new Set(allOdts?.map(o => o.codigo_barras) || [])
+    const uniqueCount = allConsumoCodes.size
     
-    // Find codes that exist in consumos but NOT in odts
-    const codesInConsumosOnly: string[] = []
-    uniqueConsumoCodes.forEach(code => {
-      if (!uniqueOdtsCodes.has(code)) {
-        codesInConsumosOnly.push(code)
-      }
-    })
+    // Get ALL unique codigo_barras from odts in batches
+    const allOdtsCodes = new Set<string>()
+    offset = 0
+    
+    while (true) {
+      const { data: batch } = await supabase
+        .from('odts')
+        .select('codigo_barras')
+        .range(offset, offset + batchSize - 1)
+      
+      if (!batch || batch.length === 0) break
+      
+      batch.forEach(o => {
+        if (o.codigo_barras) allOdtsCodes.add(o.codigo_barras)
+      })
+      
+      if (batch.length < batchSize) break
+      offset += batchSize
+    }
 
-    // Check numero field as well
-    const { data: allOdtsWithNumero } = await supabase
-      .from('odts')
-      .select('codigo_barras, numero')
-
-    const codesInNumero: string[] = []
-    allOdtsWithNumero?.forEach(o => {
-      if (uniqueConsumoCodes.has(o.numero)) {
-        codesInNumero.push(o.numero)
+    // Find codes that exist in both
+    const matchingCodes: string[] = []
+    allConsumoCodes.forEach(code => {
+      if (allOdtsCodes.has(code)) {
+        matchingCodes.push(code)
       }
     })
 
     return NextResponse.json({
       ok: true,
-      totalConsumoRecords: allConsumos?.length || 0,
       uniqueConsumoCodes: uniqueCount,
-      uniqueOdtsCodes: uniqueOdtsCodes.size,
-      codesInConsumosOnly: codesInConsumosOnly.slice(0, 20), // first 20
-      codesInNumero: codesInNumero.slice(0, 20), // first 20
-      sampleConsumoCodes: Array.from(uniqueConsumoCodes).slice(0, 30)
+      uniqueOdtsCodes: allOdtsCodes.size,
+      matchingCodesCount: matchingCodes.length,
+      matchingCodesSample: matchingCodes.slice(0, 20)
     })
 
   } catch (error: any) {
