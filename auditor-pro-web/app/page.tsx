@@ -39,7 +39,17 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
 
   const consumos = detailData?.consumos || []
   const verificacion = detailData?.verificacion
+  const analisis = detailData?.analisis || {}
   const estado = verificacion?.estado_auditoria || 'pendiente'
+  
+  // Semáforo
+  const semaforo = analisis?.estadoSemaforo || 'sin_datos'
+  const semaforoColors = {
+    verde: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    amarillo: 'bg-amber-100 text-amber-700 border-amber-200',
+    rojo: 'bg-rose-100 text-rose-700 border-rose-200',
+    sin_datos: 'bg-slate-100 text-slate-600 border-slate-200'
+  }
 
   return (
     <>
@@ -54,7 +64,7 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
     `}</style>
     <div className="fixed inset-0 bg-black/60 z-50 flex justify-end">
       <div
-        className="modal-panel bg-white w-full max-w-lg h-full shadow-2xl overflow-hidden flex flex-col animate-slide-in"
+        className="modal-panel bg-white w-full max-w-2xl h-full shadow-2xl overflow-hidden flex flex-col animate-slide-in"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex-shrink-0 bg-slate-800 px-3 py-3 flex justify-between items-center">
@@ -67,11 +77,9 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
               {odt.odtId}
               {copied === 'odt' ? <span className="text-green-400 text-xs">✓</span> : <span className="text-slate-500 text-[10px]">📋</span>}
             </button>
-            <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
-              estado === 'conforme' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-              estado === 'no_conforme' ? 'bg-rose-100 text-rose-700 border-rose-200' :
-              'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>{estado}</span>
+            <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${semaforoColors[semaforo]}`}>
+              {semaforo === 'verde' ? '✅ Completa' : semaforo === 'amarillo' ? '⚠️ Básico' : semaforo === 'rojo' ? '❌ Incompleta' : 'Sin análisis'}
+            </span>
           </div>
           <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700 text-slate-300">
             <X size={14} />
@@ -79,6 +87,30 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50">
+          {/* Observaciones del semáforo */}
+          {analisis?.observaciones && (
+            <div className={`p-3 rounded-lg border text-sm ${
+              semaforo === 'rojo' ? 'bg-rose-50 border-rose-300 text-rose-800' :
+              semaforo === 'amarillo' ? 'bg-amber-50 border-amber-300 text-amber-800' :
+              'bg-emerald-50 border-emerald-300 text-emerald-800'
+            }`}>
+              {analisis.observaciones}
+            </div>
+          )}
+
+          {/* Serie validation */}
+          {analisis?.seriePSM && (
+            <div className={`p-3 rounded-lg border text-sm ${
+              analisis.serieValida === 'OK' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' :
+              'bg-rose-50 border-rose-300 text-rose-800'
+            }`}>
+              Serie medidor: <strong>{analisis.seriePSM}</strong> - {
+                analisis.serieValida === 'OK' ? '✅ Autorizada' : '❌ NO AUTORIZADA'
+              }
+            </div>
+          )}
+
+          {/* Info básica */}
           <div className="flex items-center gap-2">
             <div className="bg-white rounded px-3 py-2 border border-slate-200 flex-1">
               <span className="text-slate-400 text-[10px] uppercase font-semibold">Cuadrilla</span>
@@ -90,6 +122,42 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
             </div>
           </div>
 
+          {/* Panel PSM vs Obrador */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="text-xs font-bold text-blue-700 uppercase mb-2">📋 PSM (Declarado)</div>
+              <div className="text-xs text-blue-600 space-y-1">
+                <div>Estado: {odt.estado}</div>
+                <div>Medidor serie: {odt.medidor || '—'}</div>
+                <div>Fecha ingreso: {detailData?.odt?.fecha_ingreso || '—'}</div>
+              </div>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="text-xs font-bold text-amber-700 uppercase mb-2">🏭 OBRADOR (Físico)</div>
+              <div className="text-xs text-amber-600 space-y-1">
+                <div>Materiales: {consumos.length}</div>
+                <div>Con serie: {analisis?.seriesConsumo?.length || 0}</div>
+                <div>Stock entrega: {analisis?.stockEntregado?.length || 0}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Checklist de básicos */}
+          <div className="bg-white border border-slate-200 rounded-lg p-3">
+            <div className="text-xs font-semibold text-slate-600 uppercase mb-2">Verificación básica</div>
+            <div className="flex gap-4 text-xs">
+              <span className={analisis?.tieneCaja ? 'text-emerald-600' : 'text-rose-600'}>
+                {analisis?.tieneCaja ? '✅' : '❌'} Caja
+              </span>
+              <span className={analisis?.tienePrecinto ? 'text-emerald-600' : 'text-rose-600'}>
+                {analisis?.tienePrecinto ? '✅' : '❌'} Precinto
+              </span>
+              <span className={analisis?.tieneMedidor ? 'text-emerald-600' : 'text-rose-600'}>
+                {analisis?.tieneMedidor ? '✅' : '❌'} Medidor
+              </span>
+            </div>
+          </div>
+
           {loadingDetail ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw size={24} className="animate-spin text-slate-400" />
@@ -97,7 +165,7 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
           ) : (
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
               <div className="text-xs font-semibold text-slate-600 uppercase px-3 py-2 bg-slate-100 border-b border-slate-200">
-                Materiales ({consumos.length})
+                Materiales consumidos ({consumos.length})
               </div>
               <div>
                 {consumos.length === 0 ? (
