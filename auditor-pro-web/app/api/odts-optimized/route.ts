@@ -129,10 +129,74 @@ export async function GET(req: NextRequest) {
       odtsFiltrados = odtsData.filter(o => !matchingCodes.includes(o.codigo_barras))
     }
 
+    // Get consumos for ALL filtered ODTs to analyze basic materials
+    const allOdtIds = odtsFiltrados.map(o => o.codigo_barras)
+    const consumosAllMap = new Map<string, string[]>() // odt -> list of producto_codigos
+    
+    if (allOdtIds.length > 0) {
+      // Get all consumos for these ODTs
+      for (let i = 0; i < allOdtIds.length; i += 100) {
+        const chunk = allOdtIds.slice(i, i + 100)
+        const { data: consumosChunk } = await supabase
+          .from('consumos')
+          .select('odt_codigo, producto_codigo, series')
+          .in('odt_codigo', chunk)
+        
+        consumosChunk?.forEach(c => {
+          if (!consumosAllMap.has(c.odt_codigo)) {
+            consumosAllMap.set(c.odt_codigo, [])
+          }
+          consumosAllMap.get(c.odt_codigo)?.push(c.producto_codigo)
+        })
+      }
+    }
+
+    // Analyze each ODT for semaphore
+    const analisisMap = new Map<string, any>()
+    odtsFiltrados.forEach(o => {
+      const productos = consumosAllMap.get(o.codigo_barras) || []
+      const tieneCaja = productos.some(p => p === '070008001' || p.startsWith('0700'))
+      const tienePrecinto = productos.some(p => p === '072002015' || p.startsWith('0720'))
+      const tieneMedidor = productos.some(p => p === '072003015' || p.startsWith('0720'))
+      
+      const tieneBasicos = tieneCaja && tienePrecinto && tieneMedidor
+      const tieneExtras = productos.length > 3
+
+      let estadoSemaforo = 'sin_datos'
+      if (matchingCodes.includes(o.codigo_barras)) {
+        if (o.estado === 'R11') {
+          if (!tieneBasicos) {
+            estadoSemaforo = 'rojo'
+          } else if (!tieneExtras) {
+            estadoSemaforo = 'amarillo'
+          } else {
+            estadoSemaforo = 'verde'
+          }
+        } else {
+          estadoSemaforo = 'verde' // Non-R11 considered complete
+        }
+      }
+
+      analisisMap.set(o.codigo_barras, {
+        tieneCaja,
+        tienePrecinto,
+        tieneMedidor,
+        productosCount: productos.length,
+        estadoSemaforo
+      })
+    })
+
+    // Apply semaphore filters
+    if (filtro === 'rojo') {
+      odtsFiltrados = odtsFiltrados.filter(o => analisisMap.get(o.codigo_barras)?.estadoSemaforo === 'rojo')
+    } else if (filtro === 'amarillo') {
+      odtsFiltrados = odtsFiltrados.filter(o => analisisMap.get(o.codigo_barras)?.estadoSemaforo === 'amarillo')
+    }
+
     // All filtered ODTs have consumos
     const odtsDataConInfo = odtsFiltrados.map(o => ({
       ...o,
-      tieneConsumos: true
+      tieneConsumos: matchingCodes.includes(o.codigo_barras)
     }))
 
     // Get verifications
@@ -169,11 +233,14 @@ export async function GET(req: NextRequest) {
       direccion: o.direccion,
       cuadrilla: o.cuadrilla_nombre,
       estado: o.estado,
+      fecha: o.fecha_ingreso,
       medidor: o.medidor_serie,
       tieneFoto: !!o.foto,
       tieneConsumos: o.tieneConsumos,
+      estadoSemaforo: analisisMap.get(o.codigo_barras)?.estadoSemaforo || 'sin_datos',
+      analisis: analisisMap.get(o.codigo_barras),
       estadoAuditoria: verifMap.get(o.codigo_barras) || 'pendiente',
-      materialesCount: consumosMap.get(o.codigo_barras) || consumosMap.get(o.numero) || 0
+      materialesCount: consumosMap.get(o.codigo_barras) || 0
     }))
 
     return NextResponse.json({

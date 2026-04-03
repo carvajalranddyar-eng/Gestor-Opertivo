@@ -573,6 +573,9 @@ export default function HomePage() {
             <option value="">Todos</option>
             <option value="con_materiales">Con materiales</option>
             <option value="sin_materiales">Sin materiales</option>
+            <option value="rojo">🔴 Incompletas</option>
+            <option value="amarillo">🟡 Solo Básico</option>
+            <option value="verde">🟢 Completas</option>
           </select>
         </div>
 
@@ -596,10 +599,11 @@ export default function HomePage() {
                 <thead className="sticky top-0 bg-slate-50 z-10">
                   <tr className="border-b border-slate-200">
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">ODT</th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-semibold">Fecha</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">Estado</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">Cuadrilla</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">Serie medidor</th>
-                    <th className="text-left px-4 py-3 text-slate-500 font-semibold">Materiales</th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-semibold">Validación</th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
@@ -613,13 +617,22 @@ export default function HomePage() {
                       }}
                     >
                       <td className="px-4 py-3 font-mono font-bold text-blue-600">{odt.odtId}</td>
+                      <td className="px-4 py-3 text-slate-500 text-[11px]">{odt.fecha || '—'}</td>
                       <td className="px-4 py-3 text-slate-500 text-[11px]">{odt.estado || '—'}</td>
                       <td className="px-4 py-3 text-slate-500 text-[11px]">{odt.cuadrilla || '—'}</td>
                       <td className="px-4 py-3 font-mono text-slate-500">{odt.medidor || '—'}</td>
-                      <td className="px-4 py-3"><span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
-                        odt.tieneConsumos ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                        'bg-slate-100 text-slate-600 border-slate-200'
-                      }`}>{odt.tieneConsumos ? 'Con materiales' : 'Sin materiales'}</span></td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-full border ${
+                          odt.estadoSemaforo === 'verde' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                          odt.estadoSemaforo === 'amarillo' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                          odt.estadoSemaforo === 'rojo' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                          'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {odt.estadoSemaforo === 'verde' ? '✅ Completa' : 
+                           odt.estadoSemaforo === 'amarillo' ? '⚠️ Básico' : 
+                           odt.estadoSemaforo === 'rojo' ? '❌ Incompleta' : 'Sin datos'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
                           <ChevronRight size={14} className="text-slate-300" />
