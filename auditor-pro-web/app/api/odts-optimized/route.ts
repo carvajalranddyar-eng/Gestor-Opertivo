@@ -174,38 +174,139 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Analyze each ODT for semaphore
+    // Analyze each ODT for ALL validations
     const analisisMap = new Map<string, any>()
+    
+    // First, build a map of all series used for duplicate detection
+    const seriesUsageMap = new Map<string, string[]>() // series -> list of odt_codigos
+    allConsumosData.forEach((productos, odtCodigo) => {
+      productos.forEach(p => {
+        // Check if this product has a series (medidor)
+        const match = p.match(/^072003015/) // MEDIDOR code
+        if (match) {
+          // Get the series from consumos - need to query
+        }
+      })
+    })
+    
+    // Get series data for all ODTs
+    const allSeriesData: {odt_codigo: string, series: string | null}[] = []
+    offsetConsumos = 0
+    while (true) {
+      const { data: seriesBatch } = await supabase
+        .from('consumos')
+        .select('odt_codigo, series')
+        .not('series', 'is', null)
+        .range(offsetConsumos, offsetConsumos + batchSize - 1)
+      
+      if (!seriesBatch || seriesBatch.length === 0) break
+      allSeriesData.push(...seriesBatch)
+      
+      if (seriesBatch.length < batchSize) break
+      offsetConsumos += batchSize
+    }
+    
+    // Build series usage map for duplicate detection
+    const seriesUsedMap = new Map<string, string[]>()
+    allSeriesData.forEach(s => {
+      if (s.series && s.odt_codigo) {
+        if (!seriesUsedMap.has(s.series)) {
+          seriesUsedMap.set(s.series, [])
+        }
+        seriesUsedMap.get(s.series)?.push(s.odt_codigo)
+      }
+    })
+    
+    // Get cuadrilla data for all ODTs
+    const allCuadrillasData: {odt_codigo: string, cuadrilla_descripcion: string | null}[] = []
+    offsetConsumos = 0
+    while (true) {
+      const { data: cuadrillaBatch } = await supabase
+        .from('consumos')
+        .select('odt_codigo, cuadrilla_descripcion')
+        .range(offsetConsumos, offsetConsumos + batchSize - 1)
+      
+      if (!cuadrillaBatch || cuadrillaBatch.length === 0) break
+      allCuadrillasData.push(...cuadrillaBatch)
+      
+      if (cuadrillaBatch.length < batchSize) break
+      offsetConsumos += batchSize
+    }
+    
+    // Build cuadrilla map forPSM comparison
+    const cuadrillasObradorMap = new Map<string, string>()
+    allCuadrillasData.forEach(c => {
+      if (c.odt_codigo && c.cuadrilla_descripcion) {
+        cuadrillasObradorMap.set(c.odt_codigo, c.cuadrilla_descripcion)
+      }
+    })
+    
+    // Now analyze each ODT with all validations
     odtsFiltrados.forEach(o => {
-      const productos = consumosAllMap.get(o.codigo_barras) || []
+      const productos = allConsumosData.get(o.codigo_barras) || []
       const tieneCaja = productos.some(p => p === '070008001' || p.startsWith('0700'))
       const tienePrecinto = productos.some(p => p === '072002015' || p.startsWith('0720'))
       const tieneMedidor = productos.some(p => p === '072003015' || p.startsWith('0720'))
       
       const tieneBasicos = tieneCaja && tienePrecinto && tieneMedidor
       const tieneExtras = productos.length > 3
-
+      
+      // MODULO 1: Check if medidor_serie exists in PSM
+      const seriePSM = o.medidor_serie
       let estadoSemaforo = 'sin_datos'
-      if (matchingCodes.includes(o.codigo_barras)) {
+      let estadoDetalle = ''
+      
+      if (!seriePSM) {
+        // NARANJA - Pendiente de datos de origen
+        estadoSemaforo = 'naranja'
+        estadoDetalle = 'Pendiente de Serie en PSM'
+      } else if (matchingCodes.includes(o.codigo_barras)) {
         if (o.estado === 'R11') {
           if (!tieneBasicos) {
             estadoSemaforo = 'rojo'
+            estadoDetalle = 'Faltan básicos'
           } else if (!tieneExtras) {
             estadoSemaforo = 'amarillo'
+            estadoDetalle = 'Solo kit básico'
           } else {
             estadoSemaforo = 'verde'
+            estadoDetalle = 'Completa'
           }
         } else {
-          estadoSemaforo = 'verde' // Non-R11 considered complete
+          estadoSemaforo = 'verde'
+          estadoDetalle = 'Estado no R11'
         }
       }
-
+      
+      // MODULO 2: Check for duplicate series
+      let serieDuplicada = null
+      if (seriePSM && seriesUsedMap.has(seriePSM)) {
+        const odtsConEstaSerie = seriesUsedMap.get(seriePSM) || []
+        if (odtsConEstaSerie.length > 1) {
+          serieDuplicada = odtsConEstaSerie
+        }
+      }
+      
+      // MODULO 3: Check cuadrilla match
+      const cuadrillaObrador = cuadrillasObradorMap.get(o.codigo_barras)
+      const cuadrillaPSM = o.cuadrilla_nombre
+      let cuadrillaNoCoincide = false
+      if (cuadrillaPSM && cuadrillaObrador && cuadrillaPSM !== cuadrillaObrador) {
+        cuadrillaNoCoincide = true
+      }
+      
       analisisMap.set(o.codigo_barras, {
         tieneCaja,
         tienePrecinto,
         tieneMedidor,
         productosCount: productos.length,
-        estadoSemaforo
+        estadoSemaforo,
+        estadoDetalle,
+        seriePSM,
+        serieDuplicada,
+        cuadrillaPSM,
+        cuadrillaObrador,
+        cuadrillaNoCoincide
       })
     })
 
