@@ -60,12 +60,59 @@ export async function GET(req: NextRequest) {
     
     const matchingCodes = Array.from(odtsConConsumosSet)
 
-    // Get ODTs - paginate ALL, filter in memory
+    // Get ODTs - paginate ALL, filter in memory based on matching codes
     let query = supabase
       .from('odts')
       .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto', { count: 'exact' })
     
-    // Apply pagination
+    // When filtering by con_materiales, we need to search differently
+    // Since matching ODTs are likely at the end (older), search by codes directly
+    if (filtro === 'con_materiales' && matchingCodes.length > 0) {
+      // Fetch matching ODTs by their codes - need to do multiple queries due to 1000 limit
+      const allMatchingOdts: any[] = []
+      for (let i = 0; i < matchingCodes.length; i += 1000) {
+        const chunk = matchingCodes.slice(i, i + 1000)
+        const { data: chunkOdts } = await supabase
+          .from('odts')
+          .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto')
+          .in('codigo_barras', chunk)
+        
+        if (chunkOdts) allMatchingOdts.push(...chunkOdts)
+      }
+      
+      // Sort by id descending to match expected order
+      allMatchingOdts.sort((a, b) => b.id - a.id)
+      
+      // Apply pagination to filtered results
+      const paginated = allMatchingOdts.slice(offset, offset + limit)
+      
+      return NextResponse.json({
+        ok: true,
+        odts: paginated.map(o => ({
+          odtId: o.codigo_barras,
+          numero: o.numero,
+          cliente: o.cliente,
+          direccion: o.direccion,
+          cuadrilla: o.cuadrilla_nombre,
+          estado: o.estado,
+          medidor: o.medidor_serie,
+          tieneFoto: !!o.foto,
+          tieneConsumos: true,
+          estadoAuditoria: 'pendiente',
+          materialesCount: 0 // Would need another query to get this
+        })),
+        total: allMatchingOdts.length,
+        page,
+        limit,
+        tieneMas: offset + limit < allMatchingOdts.length,
+        stats: {
+          conMateriales: matchingCodes.length,
+          sinMateriales: 47507 - matchingCodes.length
+        }
+      })
+    }
+    
+    // Regular pagination for other cases
     query = query.range(offset, offset + limit - 1)
     
     if (search) {
@@ -78,9 +125,7 @@ export async function GET(req: NextRequest) {
 
     // Filter in memory based on matching codes
     let odtsFiltrados = odtsData
-    if (filtro === 'con_materiales') {
-      odtsFiltrados = odtsData.filter(o => matchingCodes.includes(o.codigo_barras))
-    } else if (filtro === 'sin_materiales') {
+    if (filtro === 'sin_materiales') {
       odtsFiltrados = odtsData.filter(o => !matchingCodes.includes(o.codigo_barras))
     }
 
