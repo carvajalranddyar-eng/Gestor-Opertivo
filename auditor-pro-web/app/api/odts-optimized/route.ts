@@ -20,11 +20,22 @@ export async function GET(req: NextRequest) {
     const odtsConConsumos = new Set(consumosRaw?.map(c => c.odt_codigo) || [])
     const arrayConConsumos = Array.from(odtsConConsumos)
 
-    // Get ODTs
+    // Get ODTs - if filtro is con_materiales, we need to filter at DB level
     let query = supabase
       .from('odts')
       .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto', { count: 'exact' })
-      .range(offset, offset + limit - 1)
+    
+    // If filtering by con_materiales, we need to get matching ODTs first
+    if (filtro === 'con_materiales') {
+      // Get ODT codes that have consumos
+      const matchingCodes = Array.from(odtsConConsumos)
+      if (matchingCodes.length > 0) {
+        query = query.in('codigo_barras', matchingCodes)
+      }
+    }
+    
+    // Apply pagination after filtering
+    query = query.range(offset, offset + limit - 1)
     
     if (search) {
       query = query.or(`codigo_barras.ilike.%${search}%,numero.ilike.%${search}%`)
@@ -40,16 +51,8 @@ export async function GET(req: NextRequest) {
       return { ...o, tieneConsumos }
     })
 
-    // Apply filtro con_materiales / sin_materiales
-    let odtsFiltrados = odtsDataConInfo
-    if (filtro === 'con_materiales') {
-      odtsFiltrados = odtsDataConInfo.filter(o => o.tieneConsumos)
-    } else if (filtro === 'sin_materiales') {
-      odtsFiltrados = odtsDataConInfo.filter(o => !o.tieneConsumos)
-    }
-
     // Get verifications
-    const odtIds = odtsFiltrados.map(o => o.codigo_barras)
+    const odtIds = odtsDataConInfo.map(o => o.codigo_barras)
     const { data: verifData } = await supabase
       .from('verificaciones_odt')
       .select('odt_codigo, estado_auditoria')
@@ -69,7 +72,7 @@ export async function GET(req: NextRequest) {
       consumosMap.set(c.odt_codigo, (consumosMap.get(c.odt_codigo) || 0) + 1)
     })
 
-    const odts = odtsFiltrados.map(o => ({
+    const odts = odtsDataConInfo.map(o => ({
       odtId: o.codigo_barras,
       numero: o.numero,
       cliente: o.cliente,
