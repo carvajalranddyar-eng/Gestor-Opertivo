@@ -33,15 +33,44 @@ export async function GET(req: NextRequest) {
       offsetConsumos += batchSize
     }
     
-    const odtsConConsumos = allConsumoCodes
-    const matchingCodes = Array.from(odtsConConsumos)
+    // Get all ODTs that have consumos - fetch in batches
+    const odtsConConsumosSet = new Set<string>()
+    let offsetOdts = 0
+    const odtBatchSize = 1000
+    
+    while (true) {
+      // Get batch of ODT codes that match consumos
+      const { data: odtBatch } = await supabase
+        .from('odts')
+        .select('codigo_barras, numero')
+        .range(offsetOdts, offsetOdts + odtBatchSize - 1)
+      
+      if (!odtBatch || odtBatch.length === 0) break
+      
+      // Check each ODT if it has consumos
+      odtBatch.forEach(o => {
+        if (allConsumoCodes.has(o.codigo_barras) || allConsumoCodes.has(o.numero)) {
+          odtsConConsumosSet.add(o.codigo_barras)
+        }
+      })
+      
+      if (odtBatch.length < odtBatchSize) break
+      offsetOdts += odtBatchSize
+    }
+    
+    const matchingCodes = Array.from(odtsConConsumosSet)
 
-    // Get ODTs - if filtro is con_materiales, fetch all and filter in memory
+    // Get ODTs - if filtro is con_materiales, we need to fetch matching ODTs
     let query = supabase
       .from('odts')
       .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto', { count: 'exact' })
     
-    // Apply pagination first (for performance)
+    // If we have matching codes, use them
+    if (filtro === 'con_materiales' && matchingCodes.length > 0) {
+      query = query.in('codigo_barras', matchingCodes)
+    }
+    
+    // Apply pagination
     query = query.range(offset, offset + limit - 1)
     
     if (search) {
@@ -52,22 +81,14 @@ export async function GET(req: NextRequest) {
     let odtsData = result.data || []
     const total = result.count || 0
 
-    // Check if ODT has consumos - EXACT MATCH ONLY (by codigo_barras OR by numero)
-    const odtsDataConInfo = odtsData.map(o => {
-      const tieneConsumos = odtsConConsumos.has(o.codigo_barras) || odtsConConsumos.has(o.numero)
-      return { ...o, tieneConsumos }
-    })
-
-    // NOW apply the filtro - filter in memory AFTER pagination
-    let odtsFiltrados = odtsDataConInfo
-    if (filtro === 'con_materiales') {
-      odtsFiltrados = odtsDataConInfo.filter(o => o.tieneConsumos)
-    } else if (filtro === 'sin_materiales') {
-      odtsFiltrados = odtsDataConInfo.filter(o => !o.tieneConsumos)
-    }
+    // All returned ODTs have consumos (since we filtered at DB level)
+    const odtsDataConInfo = odtsData.map(o => ({
+      ...o,
+      tieneConsumos: true
+    }))
 
     // Get verifications
-    const odtIds = odtsFiltrados.map(o => o.codigo_barras)
+    const odtIds = odtsDataConInfo.map(o => o.codigo_barras)
     const { data: verifData } = await supabase
       .from('verificaciones_odt')
       .select('odt_codigo, estado_auditoria')
@@ -87,7 +108,7 @@ export async function GET(req: NextRequest) {
       consumosMap.set(c.odt_codigo, (consumosMap.get(c.odt_codigo) || 0) + 1)
     })
 
-    const odts = odtsFiltrados.map(o => ({
+    const odts = odtsDataConInfo.map(o => ({
       odtId: o.codigo_barras,
       numero: o.numero,
       cliente: o.cliente,
