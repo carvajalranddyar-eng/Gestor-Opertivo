@@ -43,8 +43,8 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
   const estado = verificacion?.estado_auditoria || 'pendiente'
   
   // Semáforo
-  const semaforo = analisis?.estadoSemaforo || 'sin_datos'
-  const semaforoColors = {
+  const semaforo = (analisis?.estadoSemaforo || 'sin_datos') as 'verde' | 'amarillo' | 'rojo' | 'sin_datos'
+  const semaforoColors: Record<string, string> = {
     verde: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     amarillo: 'bg-amber-100 text-amber-700 border-amber-200',
     rojo: 'bg-rose-100 text-rose-700 border-rose-200',
