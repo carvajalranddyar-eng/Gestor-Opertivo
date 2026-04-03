@@ -12,31 +12,12 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = page * limit
 
-    // Get all unique ODT codes from consumos - get ALL for matching
+    // Get all unique ODT codes from consumos - EXACT MATCH ONLY
     const { data: consumosRaw } = await supabase
       .from('consumos')
       .select('odt_codigo')
     
-    // Build a more flexible matching - try to extract numeric IDs
-    const odtsConConsumos = new Set<string>()
-    const odtsConConsumosNumerico = new Map<string, string[]>() // numericId -> original codes
-    
-    consumosRaw?.forEach(c => {
-      const code = c.odt_codigo
-      if (code) {
-        odtsConConsumos.add(code)
-        // Extract numeric ID for flexible matching
-        const match = code.match(/(\d+)/)
-        if (match) {
-          const numericId = match[1]
-          if (!odtsConConsumosNumerico.has(numericId)) {
-            odtsConConsumosNumerico.set(numericId, [])
-          }
-          odtsConConsumosNumerico.get(numericId)!.push(code)
-        }
-      }
-    })
-    
+    const odtsConConsumos = new Set(consumosRaw?.map(c => c.odt_codigo) || [])
     const arrayConConsumos = Array.from(odtsConConsumos)
 
     // Get ODTs
@@ -53,26 +34,9 @@ export async function GET(req: NextRequest) {
     let odtsData = result.data || []
     const total = result.count || 0
 
-    // Check if ODT has consumos (by codigo_barras OR by numero OR by numeric ID extraction)
+    // Check if ODT has consumos - EXACT MATCH ONLY (by codigo_barras OR by numero)
     const odtsDataConInfo = odtsData.map(o => {
-      const codigoBarras = o.codigo_barras || ''
-      const numero = o.numero || ''
-      
-      // Direct match
-      let tieneConsumos = odtsConConsumos.has(codigoBarras) || odtsConConsumos.has(numero)
-      
-      // Try numeric ID extraction matching
-      if (!tieneConsumos) {
-        const matchBarras = codigoBarras.match(/(\d+)/)
-        const matchNumero = numero.match(/(\d+)/)
-        
-        if (matchBarras && odtsConConsumosNumerico.has(matchBarras[1])) {
-          tieneConsumos = true
-        } else if (matchNumero && odtsConConsumosNumerico.has(matchNumero[1])) {
-          tieneConsumos = true
-        }
-      }
-      
+      const tieneConsumos = odtsConConsumos.has(o.codigo_barras) || odtsConConsumos.has(o.numero)
       return { ...o, tieneConsumos }
     })
 

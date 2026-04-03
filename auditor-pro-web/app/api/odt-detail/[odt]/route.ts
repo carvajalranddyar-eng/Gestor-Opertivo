@@ -15,11 +15,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ odt:
 
     if (odtError) throw new Error(odtError.message)
 
-    // Get consumos for this ODT (try both codigo_barras and numero)
+    // Get consumos for this ODT - EXACT MATCH ONLY
     const { data: consumos, error: consError } = await supabase
       .from('consumos')
       .select('producto_codigo, producto_descripcion, cantidad, series, cuadrilla_descripcion, fecha_consumo')
-      .or(`odt_codigo.eq.${odtCodigo},odt_codigo.like.%${odtCodigo}%`)
+      .eq('odt_codigo', odtCodigo)
       .order('fecha_consumo', { ascending: false })
 
     if (consError) throw new Error(consError.message)
