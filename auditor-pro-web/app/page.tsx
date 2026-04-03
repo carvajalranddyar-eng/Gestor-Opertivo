@@ -153,7 +153,6 @@ export default function HomePage() {
 
   const [odtSeleccionada, setOdtSeleccionada] = useState<any | null>(null)
   const [busquedaLocal, setBusquedaLocal] = useState('')
-  const [sincronizando, setSincronizando] = useState(false)
   const [proxyStatus, setProxyStatus] = useState<ProxyStatus | null>(null)
   const [proxyLoading, setProxyLoading] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -356,72 +355,6 @@ export default function HomePage() {
     }
   }
 
-  const handleSincronizarPSM = async () => {
-    if (!confirm('Esto sincronizará PSM y Obrador. ¿Continuar?')) return
-    
-    setSincronizando(true)
-    const results: string[] = []
-    
-    try {
-      // 1. Sincronizar PSM
-      const res1 = await fetch('/api/sync', { method: 'POST' })
-      const text1 = await res1.text()
-      let data1
-      try {
-        data1 = JSON.parse(text1)
-      } catch (e) {
-        throw new Error(`Error en sync PSM: ${text1.substring(0, 200)}`)
-      }
-      
-      if (!data1.ok) {
-        throw new Error(data1.error || 'Error desconocido en sync PSM')
-      }
-      results.push(`PSM: ${data1.odts_procesadas || 0} ODTs, ${data1.consumos_procesados || 0} consumos`)
-      
-      // 2. Sincronizar Obrador (stock)
-      const res2 = await fetch('/api/sync-obrador', { method: 'POST' })
-      const text2 = await res2.text()
-      let data2
-      try {
-        data2 = JSON.parse(text2)
-      } catch (e) {
-        throw new Error(`Error en sync Obrador: ${text2.substring(0, 200)}`)
-      }
-      
-      if (data2.ok) {
-        results.push(`Stock: ${data2.registros_procesados || 0} registros`)
-      }
-      
-      // 3. Sincronizar movimientos Obrador
-      const res3 = await fetch('/api/sync-movimientos-obrador', { method: 'POST' })
-      const text3 = await res3.text()
-      let data3
-      try {
-        data3 = JSON.parse(text3)
-      } catch (e) {
-        throw new Error(`Error en sync movimientos: ${text3.substring(0, 200)}`)
-      }
-      
-      if (data3.ok) {
-        results.push(`Movimientos: ${data3.registros_procesados || 0} registros`)
-      }
-      
-      // 4. Recargar datos en pantalla
-      await loadOdtsOptimized(true)
-      
-      // 5. Actualizar stats de la DB
-      await loadStatsDB()
-      
-      alert(`Sincronización completada:\n${results.join('\n')}`)
-      setPsmConnected(true)
-    } catch (err: any) {
-      console.error('Error sincronizando:', err)
-      alert('Error al sincronizar: ' + (err.message || err))
-    } finally {
-      setSincronizando(false)
-    }
-  }
-
   const handleAuditar = async (odtId: string) => {
     if (!confirm(`¿Auditar ODT ${odtId}?`)) return
     
@@ -519,11 +452,6 @@ export default function HomePage() {
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
               <RefreshCw size={12} className={loadingOptimized ? 'animate-spin' : ''} />
               {loadingOptimized ? 'Cargando...' : 'Actualizar'}
-            </button>
-            <button onClick={handleSincronizarPSM} disabled={sincronizando}
-              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50">
-              <RefreshCw size={12} className={sincronizando ? 'animate-spin' : ''} />
-              {sincronizando ? 'Sincronizando...' : 'Sincronizar'}
             </button>
           </div>
         </div>
