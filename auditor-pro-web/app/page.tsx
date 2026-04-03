@@ -168,6 +168,7 @@ export default function HomePage() {
   const [loadingOptimized, setLoadingOptimized] = useState(false)
   const [page, setPage] = useState(0)
   const [totalOdts, setTotalOdts] = useState(0)
+  const [statsApi, setStatsApi] = useState<{conMateriales: number, sinMateriales: number}>({ conMateriales: 0, sinMateriales: 0 })
   const [tieneMas, setTieneMas] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [detailData, setDetailData] = useState<any>(null)
@@ -191,7 +192,7 @@ export default function HomePage() {
       const res = await fetch(`/api/odts-optimized?${params.toString()}`)
       const data = await res.json()
       
-      if (data.ok) {
+        if (data.ok) {
         if (resetPage) {
           setOdtsOptimized(data.odts || [])
         } else {
@@ -200,6 +201,9 @@ export default function HomePage() {
         setTotalOdts(data.total || 0)
         setTieneMas(data.tieneMas || false)
         setPage(currentPage + 1)
+        if (data.stats) {
+          setStatsApi(data.stats)
+        }
       }
     } catch (e) {
       console.error('Error loading ODTs:', e)
@@ -462,11 +466,11 @@ export default function HomePage() {
         {/* KPIs */}
         <div className="grid grid-cols-6 gap-2">
           {[
-            { label: 'Total', value: totalOdts, color: 'text-slate-700', bg: 'bg-white', border: 'border-slate-200', icon: <Clock size={14} /> },
-            { label: 'Con materiales', value: statsDB.consumos, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', icon: <CheckCircle size={14} /> },
-            { label: 'Pendientes', value: statsDB.odts - statsDB.verificaciones, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', icon: <Play size={14} /> },
-            { label: 'Auditadas', value: statsDB.verificaciones, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100', icon: <XCircle size={14} /> },
-            { label: 'ODTs', value: statsDB.odts, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', icon: <XCircle size={14} /> },
+            { label: 'Total ODTs', value: totalOdts, color: 'text-slate-700', bg: 'bg-white', border: 'border-slate-200', icon: <Clock size={14} /> },
+            { label: 'c/Consumo', value: statsApi.conMateriales || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', icon: <CheckCircle size={14} /> },
+            { label: 's/Consumo', value: statsApi.sinMateriales || 0, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', icon: <Play size={14} /> },
+            { label: 'Auditadas', value: statsDB.verificaciones, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100', icon: <CheckCircle size={14} /> },
+            { label: 'Registros Consumo', value: statsDB.consumos, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', icon: <XCircle size={14} /> },
             { label: 'Movimientos', value: statsDB.movimientos, color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100', icon: <CheckCircle size={14} /> },
           ].map(k => (
             <div key={k.label} className={`${k.bg} rounded-xl p-3 border ${k.border}`}>
