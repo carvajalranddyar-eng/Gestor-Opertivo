@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     // Get ODTs - paginate ALL, filter in memory based on matching codes
     let query = supabase
       .from('odts')
-      .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto', { count: 'exact' })
+      .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso', { count: 'exact' })
     
     // When filtering by con_materiales, we need to search differently
     // Since matching ODTs are likely at the end (older), search by codes directly
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
         const chunk = matchingCodes.slice(i, i + 1000)
         const { data: chunkOdts } = await supabase
           .from('odts')
-          .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto')
+          .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso')
           .in('codigo_barras', chunk)
         
         if (chunkOdts) allMatchingOdts.push(...chunkOdts)
