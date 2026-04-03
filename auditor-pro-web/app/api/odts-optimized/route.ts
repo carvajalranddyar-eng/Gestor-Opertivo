@@ -12,15 +12,29 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = page * limit
 
-    // Get COUNT of unique ODT codes from consumos using RPC or raw query
-    // First, let's get all unique codes in a single query
-    const { data: consumoGroups } = await supabase
-      .from('consumos')
-      .select('odt_codigo')
+    // Get ALL unique ODT codes from consumos - need to fetch in batches due to Supabase 1000 limit
+    const allConsumoCodes = new Set<string>()
+    let offsetConsumos = 0
+    const batchSize = 1000
     
-    // Build the set - this now contains ALL codes
-    const odtsConConsumos = new Set(consumoGroups?.map(c => c.odt_codigo) || [])
-    const arrayConConsumos = Array.from(odtsConConsumos)
+    while (true) {
+      const { data: consumoBatch } = await supabase
+        .from('consumos')
+        .select('odt_codigo')
+        .range(offsetConsumos, offsetConsumos + batchSize - 1)
+      
+      if (!consumoBatch || consumoBatch.length === 0) break
+      
+      consumoBatch.forEach(c => {
+        if (c.odt_codigo) allConsumoCodes.add(c.odt_codigo)
+      })
+      
+      if (consumoBatch.length < batchSize) break
+      offsetConsumos += batchSize
+    }
+    
+    const odtsConConsumos = allConsumoCodes
+    const matchingCodes = Array.from(odtsConConsumos)
 
     // Get ODTs - if filtro is con_materiales, we need to filter at DB level
     let query = supabase
@@ -96,8 +110,8 @@ export async function GET(req: NextRequest) {
       limit,
       tieneMas: odts.length === limit,
       stats: {
-        conMateriales: arrayConConsumos.length,
-        sinMateriales: total - arrayConConsumos.length
+        conMateriales: matchingCodes.length,
+        sinMateriales: total - matchingCodes.length
       }
     })
 
