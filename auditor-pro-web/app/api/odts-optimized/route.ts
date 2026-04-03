@@ -60,15 +60,10 @@ export async function GET(req: NextRequest) {
     
     const matchingCodes = Array.from(odtsConConsumosSet)
 
-    // Get ODTs - if filtro is con_materiales, we need to fetch matching ODTs
+    // Get ODTs - paginate ALL, filter in memory
     let query = supabase
       .from('odts')
       .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto', { count: 'exact' })
-    
-    // If we have matching codes, use them
-    if (filtro === 'con_materiales' && matchingCodes.length > 0) {
-      query = query.in('codigo_barras', matchingCodes)
-    }
     
     // Apply pagination
     query = query.range(offset, offset + limit - 1)
@@ -81,32 +76,46 @@ export async function GET(req: NextRequest) {
     let odtsData = result.data || []
     const total = result.count || 0
 
-    // All returned ODTs have consumos (since we filtered at DB level)
-    const odtsDataConInfo = odtsData.map(o => ({
+    // Filter in memory based on matching codes
+    let odtsFiltrados = odtsData
+    if (filtro === 'con_materiales') {
+      odtsFiltrados = odtsData.filter(o => matchingCodes.includes(o.codigo_barras))
+    } else if (filtro === 'sin_materiales') {
+      odtsFiltrados = odtsData.filter(o => !matchingCodes.includes(o.codigo_barras))
+    }
+
+    // All filtered ODTs have consumos
+    const odtsDataConInfo = odtsFiltrados.map(o => ({
       ...o,
       tieneConsumos: true
     }))
 
     // Get verifications
     const odtIds = odtsDataConInfo.map(o => o.codigo_barras)
-    const { data: verifData } = await supabase
-      .from('verificaciones_odt')
-      .select('odt_codigo, estado_auditoria')
-      .in('odt_codigo', odtIds)
-
+    
+    // Skip verification query if no ODTs
     const verifMap = new Map<string, string>()
-    verifData?.forEach(v => verifMap.set(v.odt_codigo, v.estado_auditoria))
+    if (odtIds.length > 0) {
+      const { data: verifData } = await supabase
+        .from('verificaciones_odt')
+        .select('odt_codigo, estado_auditoria')
+        .in('odt_codigo', odtIds)
+
+      verifData?.forEach(v => verifMap.set(v.odt_codigo, v.estado_auditoria))
+    }
 
     // Get consumos counts
-    const { data: consumosCounts } = await supabase
-      .from('consumos')
-      .select('odt_codigo')
-      .in('odt_codigo', odtIds)
-
     const consumosMap = new Map<string, number>()
-    consumosCounts?.forEach(c => {
-      consumosMap.set(c.odt_codigo, (consumosMap.get(c.odt_codigo) || 0) + 1)
-    })
+    if (odtIds.length > 0) {
+      const { data: consumosCounts } = await supabase
+        .from('consumos')
+        .select('odt_codigo')
+        .in('odt_codigo', odtIds)
+
+      consumosCounts?.forEach(c => {
+        consumosMap.set(c.odt_codigo, (consumosMap.get(c.odt_codigo) || 0) + 1)
+      })
+    }
 
     const odts = odtsDataConInfo.map(o => ({
       odtId: o.codigo_barras,
