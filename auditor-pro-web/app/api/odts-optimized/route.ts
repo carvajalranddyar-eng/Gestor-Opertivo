@@ -12,63 +12,71 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = page * limit
 
-    // Get ALL unique ODT codes from consumos - need to fetch in batches due to Supabase 1000 limit
-    const allConsumoCodes = new Set<string>()
+    // Get ALL consumos data (producto_codigo) for ALL ODTs that have consumos
+    const allConsumosData = new Map<string, string[]>() // odt -> list of producto_codigos
     let offsetConsumos = 0
     const batchSize = 1000
     
     while (true) {
       const { data: consumoBatch } = await supabase
         .from('consumos')
-        .select('odt_codigo')
+        .select('odt_codigo, producto_codigo')
         .range(offsetConsumos, offsetConsumos + batchSize - 1)
       
       if (!consumoBatch || consumoBatch.length === 0) break
       
       consumoBatch.forEach(c => {
-        if (c.odt_codigo) allConsumoCodes.add(c.odt_codigo)
+        if (c.odt_codigo) {
+          if (!allConsumosData.has(c.odt_codigo)) {
+            allConsumosData.set(c.odt_codigo, [])
+          }
+          allConsumosData.get(c.odt_codigo)?.push(c.producto_codigo)
+        }
       })
       
       if (consumoBatch.length < batchSize) break
       offsetConsumos += batchSize
     }
     
-    // Get all ODTs that have consumos - fetch in batches
-    const odtsConConsumosSet = new Set<string>()
-    let offsetOdts = 0
-    const odtBatchSize = 1000
+    // Now analyze ALL ODTs that have consumos for semaphore status
+    const analisisAllMap = new Map<string, any>()
     
-    while (true) {
-      // Get batch of ODT codes that match consumos
-      const { data: odtBatch } = await supabase
-        .from('odts')
-        .select('codigo_barras, numero')
-        .range(offsetOdts, offsetOdts + odtBatchSize - 1)
+    allConsumosData.forEach((productos, odtCodigo) => {
+      const tieneCaja = productos.some(p => p === '070008001' || p.startsWith('0700'))
+      const tienePrecinto = productos.some(p => p === '072002015' || p.startsWith('0720'))
+      const tieneMedidor = productos.some(p => p === '072003015' || p.startsWith('0720'))
       
-      if (!odtBatch || odtBatch.length === 0) break
+      const tieneBasicos = tieneCaja && tienePrecinto && tieneMedidor
+      const tieneExtras = productos.length > 3
       
-      // Check each ODT if it has consumos
-      odtBatch.forEach(o => {
-        if (allConsumoCodes.has(o.codigo_barras) || allConsumoCodes.has(o.numero)) {
-          odtsConConsumosSet.add(o.codigo_barras)
-        }
+      let estadoSemaforo = 'sin_datos'
+      if (!tieneBasicos) {
+        estadoSemaforo = 'rojo'
+      } else if (!tieneExtras) {
+        estadoSemaforo = 'amarillo'
+      } else {
+        estadoSemaforo = 'verde'
+      }
+      
+      analisisAllMap.set(odtCodigo, {
+        tieneCaja,
+        tienePrecinto,
+        tieneMedidor,
+        productosCount: productos.length,
+        estadoSemaforo
       })
-      
-      if (odtBatch.length < odtBatchSize) break
-      offsetOdts += odtBatchSize
-    }
+    })
     
-    const matchingCodes = Array.from(odtsConConsumosSet)
+    const matchingCodes = Array.from(allConsumosData.keys())
 
-    // Get ODTs - paginate ALL, filter in memory based on matching codes
+    // Get ODTs - handle filters by fetching matching codes
     let query = supabase
       .from('odts')
       .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso', { count: 'exact' })
     
-    // When filtering by con_materiales, we need to search differently
-    // Since matching ODTs are likely at the end (older), search by codes directly
-    if (filtro === 'con_materiales' && matchingCodes.length > 0) {
-      // Fetch matching ODTs by their codes - need to do multiple queries due to 1000 limit
+    // When filtering by semaphore status, we need to get ALL matching ODTs first
+    if ((filtro === 'con_materiales' || filtro === 'rojo' || filtro === 'amarillo' || filtro === 'verde') && matchingCodes.length > 0) {
+      // Fetch matching ODTs by their codes
       const allMatchingOdts: any[] = []
       for (let i = 0; i < matchingCodes.length; i += 1000) {
         const chunk = matchingCodes.slice(i, i + 1000)
@@ -80,11 +88,21 @@ export async function GET(req: NextRequest) {
         if (chunkOdts) allMatchingOdts.push(...chunkOdts)
       }
       
-      // Sort by id descending to match expected order
-      allMatchingOdts.sort((a, b) => b.id - a.id)
+      // Apply semaphore filter BEFORE pagination
+      let filteredOdts = allMatchingOdts
+      if (filtro === 'rojo') {
+        filteredOdts = allMatchingOdts.filter(o => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'rojo')
+      } else if (filtro === 'amarillo') {
+        filteredOdts = allMatchingOdts.filter(o => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'amarillo')
+      } else if (filtro === 'verde') {
+        filteredOdts = allMatchingOdts.filter(o => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'verde')
+      }
       
-      // Apply pagination to filtered results
-      const paginated = allMatchingOdts.slice(offset, offset + limit)
+      // Sort by id descending
+      filteredOdts.sort((a, b) => b.id - a.id)
+      
+      // Apply pagination
+      const paginated = filteredOdts.slice(offset, offset + limit)
       
       return NextResponse.json({
         ok: true,
@@ -95,24 +113,30 @@ export async function GET(req: NextRequest) {
           direccion: o.direccion,
           cuadrilla: o.cuadrilla_nombre,
           estado: o.estado,
+          fecha: o.fecha_ingreso,
           medidor: o.medidor_serie,
           tieneFoto: !!o.foto,
           tieneConsumos: true,
+          estadoSemaforo: analisisAllMap.get(o.codigo_barras)?.estadoSemaforo || 'sin_datos',
+          analisis: analisisAllMap.get(o.codigo_barras),
           estadoAuditoria: 'pendiente',
-          materialesCount: 0 // Would need another query to get this
+          materialesCount: analisisAllMap.get(o.codigo_barras)?.productosCount || 0
         })),
-        total: allMatchingOdts.length,
+        total: filteredOdts.length,
         page,
         limit,
-        tieneMas: offset + limit < allMatchingOdts.length,
+        tieneMas: offset + limit < filteredOdts.length,
         stats: {
           conMateriales: matchingCodes.length,
-          sinMateriales: 47507 - matchingCodes.length
+          sinMateriales: 47507 - matchingCodes.length,
+          rojo: Array.from(analisisAllMap.values()).filter(a => a.estadoSemaforo === 'rojo').length,
+          amarillo: Array.from(analisisAllMap.values()).filter(a => a.estadoSemaforo === 'amarillo').length,
+          verde: Array.from(analisisAllMap.values()).filter(a => a.estadoSemaforo === 'verde').length
         }
       })
     }
     
-    // Regular pagination for other cases
+    // Regular path for no filter or sin_materiales
     query = query.range(offset, offset + limit - 1)
     
     if (search) {
@@ -131,10 +155,9 @@ export async function GET(req: NextRequest) {
 
     // Get consumos for ALL filtered ODTs to analyze basic materials
     const allOdtIds = odtsFiltrados.map(o => o.codigo_barras)
-    const consumosAllMap = new Map<string, string[]>() // odt -> list of producto_codigos
+    const consumosAllMap = new Map<string, string[]>()
     
     if (allOdtIds.length > 0) {
-      // Get all consumos for these ODTs
       for (let i = 0; i < allOdtIds.length; i += 100) {
         const chunk = allOdtIds.slice(i, i + 100)
         const { data: consumosChunk } = await supabase
