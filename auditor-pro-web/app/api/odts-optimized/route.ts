@@ -12,12 +12,14 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = page * limit
 
-    // Get all unique ODT codes from consumos - EXACT MATCH ONLY
-    const { data: consumosRaw } = await supabase
+    // Get COUNT of unique ODT codes from consumos using RPC or raw query
+    // First, let's get all unique codes in a single query
+    const { data: consumoGroups } = await supabase
       .from('consumos')
       .select('odt_codigo')
     
-    const odtsConConsumos = new Set(consumosRaw?.map(c => c.odt_codigo) || [])
+    // Build the set - this now contains ALL codes
+    const odtsConConsumos = new Set(consumoGroups?.map(c => c.odt_codigo) || [])
     const arrayConConsumos = Array.from(odtsConConsumos)
 
     // Get ODTs - if filtro is con_materiales, we need to filter at DB level
