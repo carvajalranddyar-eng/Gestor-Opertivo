@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
 
     const odtsData = await fetchAll(supabase, 'odts', 'codigo_barras, numero, estado, cuadrilla_id, cuadrilla_nombre, medidor_serie')
     const consumosData = await fetchAll(supabase, 'consumos', 'odt_codigo, producto_codigo, cantidad, series')
-    const movimientosData = await fetchAll(supabase, 'movimientos_obrador', 'desde_cuadrilla_codigo, desde_cuadrilla_descripcion, hacia_cuadrilla_codigo, hacia_cuadrilla_descripcion, producto_codigo, cantidad, tipo_movimiento, remito, fecha')
+    const movimientosData = await fetchAll(supabase, 'movimientos_obrador', 'desde_cuadrilla_codigo, desde_cuadrilla_descripcion, hacia_cuadrilla_codigo, hacia_cuadrilla_descripcion, producto_codigo, cantidad, tipo_movimiento, remito, fecha, serie')
     const stockData = await fetchAll(supabase, 'stock_obrador', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, ubicacion')
-    const obradorControlData = await fetchAll(supabase, 'obrador_control', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+    const obradorControlData = await fetchAll(supabase, 'obrador_control', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha, serie')
 
     const balanceMap = new Map<string, any>()
 
@@ -66,12 +66,14 @@ export async function GET(req: NextRequest) {
           entregado: 0,
           verificado: 0,
           dudoso: 0,
-          devuelto: 0
+          devuelto: 0,
+          detalleEntregado: [] as { serie: string, remito: string, fecha: string }[]
         }
       }
       return entry.materiales[code]
     }
 
+    // Process obrador_control (Entregado Real with Series)
     obradorControlData?.forEach((o: any) => {
         const cuadrillaKey = o.cuadrilla_codigo
         if (!cuadrillaKey || !o.producto_codigo) return
@@ -82,9 +84,17 @@ export async function GET(req: NextRequest) {
 
         if (o.tipo_movimiento === 'SALIDA' || o.tipo_movimiento === 'ENVIO A OBRA' || o.tipo_movimiento === 'CONSUMO EN OBRA') {
             matData.entregado += (parseFloat(o.cantidad) || 1)
+            if (o.serie) {
+              matData.detalleEntregado.push({
+                serie: o.serie,
+                remito: o.remito || 'SIN REMITO',
+                fecha: o.fecha || ''
+              })
+            }
         }
     })
 
+    // Process movimientos (Devueltos with Series)
     movimientosData?.forEach((m: any) => {
       let cuadrillaKey = m.hacia_cuadrilla_codigo
       let cuadrillaNombre = m.hacia_cuadrilla_descripcion || ''
@@ -100,14 +110,6 @@ export async function GET(req: NextRequest) {
       const code = m.producto_codigo
       const cantidad = parseFloat(m.cantidad) || 1
       const matData = getMaterialData(entry, code)
-
-      entry.movimientos.push({
-        producto: code,
-        cantidad: cantidad,
-        tipo: m.tipo_movimiento,
-        remito: m.remito || 'SIN REMITO',
-        fecha: m.fecha
-      })
 
       if (m.tipo_movimiento === 'ENTRADA') {
         matData.devuelto += cantidad

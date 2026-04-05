@@ -12,6 +12,7 @@ interface Material {
   verificado: number
   dudoso: number
   devuelto: number
+  detalleEntregado?: { serie: string, remito: string, fecha: string }[]
 }
 
 interface BalanceData {
@@ -33,6 +34,7 @@ export default function BalancesPage() {
   const [filtroGravedad, setFiltroGravedad] = useState('')
   const [search, setSearch] = useState('')
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set()) // Track expanded material details
 
   const loadBalance = async () => {
     setLoading(true)
@@ -77,6 +79,16 @@ export default function BalancesPage() {
       newExpanded.add(id)
     }
     setExpandedCards(newExpanded)
+  }
+
+  const toggleMaterialDetail = (key: string) => {
+    const newExpanded = new Set(expandedMaterials)
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key)
+    } else {
+      newExpanded.add(key)
+    }
+    setExpandedMaterials(newExpanded)
   }
 
   const getDiffBadge = (val: number) => {
@@ -211,18 +223,49 @@ export default function BalancesPage() {
                         <tbody className="divide-y divide-slate-100">
                           {balance?.materiales?.map((mat) => {
                             const diff = balance.diferencia[mat.code] || 0
+                            const detailKey = `${id}-${mat.code}`
+                            const hasDetail = mat.detalleEntregado && mat.detalleEntregado.length > 0
+                            const isDetailExpanded = expandedMaterials.has(detailKey)
+
                             return (
-                              <tr key={mat.code} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-4 py-2 font-mono text-slate-600 text-xs">{mat.code}</td>
-                                <td className="px-4 py-2 text-slate-700 font-medium max-w-xs truncate" title={mat.desc}>
-                                  {mat.desc}
-                                </td>
-                                <td className="px-4 py-2 text-center bg-blue-50/30 text-blue-800 font-bold">{mat.entregado}</td>
-                                <td className="px-4 py-2 text-center bg-emerald-50/30 text-emerald-800">{mat.verificado}</td>
-                                <td className="px-4 py-2 text-center">
-                                  {getDiffBadge(diff)}
-                                </td>
-                              </tr>
+                              <>
+                                <tr key={mat.code} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-4 py-2 font-mono text-slate-600 text-xs">{mat.code}</td>
+                                  <td className="px-4 py-2 text-slate-700 font-medium max-w-xs truncate" title={mat.desc}>
+                                    {mat.desc}
+                                  </td>
+                                  <td 
+                                    className={`px-4 py-2 text-center font-bold cursor-pointer hover:bg-blue-50 transition-colors ${hasDetail ? 'text-blue-700' : 'text-blue-800 bg-blue-50/30'}`}
+                                    onClick={() => hasDetail && toggleMaterialDetail(detailKey)}
+                                    title={hasDetail ? "Click para ver series" : ""}
+                                  >
+                                    {mat.entregado}
+                                    {hasDetail && <span className="ml-1 text-[10px]">📋</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-center bg-emerald-50/30 text-emerald-800">{mat.verificado}</td>
+                                  <td className="px-4 py-2 text-center">
+                                    {getDiffBadge(diff)}
+                                  </td>
+                                </tr>
+                                {hasDetail && isDetailExpanded && (
+                                  <tr className="bg-blue-50/50">
+                                    <td colSpan={5} className="px-4 py-3">
+                                      <div className="text-xs font-semibold text-blue-800 mb-2">Detalle de Entrega (Serie / Remito / Fecha)</div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {mat.detalleEntregado?.map((det, i) => (
+                                          <div key={i} className="bg-white border border-blue-200 rounded px-2 py-1 text-xs font-mono text-slate-600 flex gap-2">
+                                            <span className="font-bold text-blue-700">{det.serie}</span>
+                                            <span className="text-slate-400">|</span>
+                                            <span>{det.remito}</span>
+                                            <span className="text-slate-400">|</span>
+                                            <span className="text-slate-500">{det.fecha}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
                             )
                           })}
                           {(!balance?.materiales || balance.materiales.length === 0) && (
