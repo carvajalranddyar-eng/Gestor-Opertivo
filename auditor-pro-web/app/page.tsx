@@ -233,6 +233,7 @@ export default function HomePage() {
 
   // Optimized pagination state
   const [odtsOptimized, setOdtsOptimized] = useState<any[]>([])
+  const [selectedOdts, setSelectedOdts] = useState<Set<string>>(new Set())
   const [loadingOptimized, setLoadingOptimized] = useState(false)
   const [page, setPage] = useState(0)
   const [totalOdts, setTotalOdts] = useState(0)
@@ -525,6 +526,19 @@ export default function HomePage() {
               <RefreshCw size={12} className={loadingOptimized ? 'animate-spin' : ''} />
               {loadingOptimized ? 'Cargando...' : 'Actualizar'}
             </button>
+            {selectedOdts.size > 0 && (
+              <div className="flex items-center gap-1 ml-2">
+                <span className="text-xs text-slate-500">{selectedOdts.size} seleccionados</span>
+                <button onClick={() => alert('Funcionalidad de reporte por lotes - seleccionar tipo de clasificación')}
+                  className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                  📋 Clasificar
+                </button>
+                <button onClick={() => setSelectedOdts(new Set())}
+                  className="text-xs px-2 py-1 rounded bg-slate-200 text-slate-600 hover:bg-slate-300">
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -573,9 +587,11 @@ export default function HomePage() {
             <option value="">Todos</option>
             <option value="con_materiales">Con materiales</option>
             <option value="sin_materiales">Sin materiales</option>
+            <option value="naranja">🟠 Pendiente Datos</option>
             <option value="rojo">🔴 Incompletas</option>
             <option value="amarillo">🟡 Solo Básico</option>
             <option value="verde">🟢 Completas</option>
+            <option value="duplicada">🟣 Serie Duplicada</option>
           </select>
         </div>
 
@@ -598,6 +614,15 @@ export default function HomePage() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-slate-50 z-10">
                   <tr className="border-b border-slate-200">
+                    <th className="text-left px-2 py-3 text-slate-500 w-8">
+                      <input type="checkbox" onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedOdts(new Set(odtsOptimized.map(o => o.odtId)))
+                        } else {
+                          setSelectedOdts(new Set())
+                        }
+                      }} className="rounded" />
+                    </th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">ODT</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">Fecha</th>
                     <th className="text-left px-4 py-3 text-slate-500 font-semibold">Estado</th>
@@ -616,6 +641,22 @@ export default function HomePage() {
                         loadOdtsDetail(odt.odtId)
                       }}
                     >
+                      <td className="px-2 py-3 w-8">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedOdts.has(odt.odtId)}
+                          onChange={e => {
+                            const newSet = new Set(selectedOdts)
+                            if (e.target.checked) {
+                              newSet.add(odt.odtId)
+                            } else {
+                              newSet.delete(odt.odtId)
+                            }
+                            setSelectedOdts(newSet)
+                          }}
+                          className="rounded"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-mono font-bold text-blue-600">{odt.odtId}</td>
                       <td className="px-4 py-3 text-slate-500 text-[11px]">{odt.fecha || '—'}</td>
                       <td className="px-4 py-3 text-slate-500 text-[11px]">{odt.estado || '—'}</td>
@@ -626,11 +667,16 @@ export default function HomePage() {
                           odt.estadoSemaforo === 'verde' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
                           odt.estadoSemaforo === 'amarillo' ? 'bg-amber-100 text-amber-700 border-amber-200' :
                           odt.estadoSemaforo === 'rojo' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                          odt.estadoSemaforo === 'naranja' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                          odt.estadoSemaforo === 'purpura' ? 'bg-purple-100 text-purple-700 border-purple-200' :
                           'bg-slate-100 text-slate-600 border-slate-200'
                         }`}>
                           {odt.estadoSemaforo === 'verde' ? '✅ Completa' : 
                            odt.estadoSemaforo === 'amarillo' ? '⚠️ Básico' : 
-                           odt.estadoSemaforo === 'rojo' ? '❌ Incompleta' : 'Sin datos'}
+                           odt.estadoSemaforo === 'rojo' ? '❌ Incompleta' : 
+                           odt.estadoSemaforo === 'naranja' ? '🟠 Pendiente' :
+                           odt.estadoSemaforo === 'purpura' ? '🟣 Duplicada' :
+                           'Sin datos'}
                         </span>
                       </td>
                       <td className="px-4 py-3">

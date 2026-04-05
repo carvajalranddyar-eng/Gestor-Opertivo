@@ -1,0 +1,281 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase'
+import { validarODT, MaterialCount } from '@/lib/validator'
+
+const MATERIAL_MASTER: Record<string, { desc: string, priority: number }> = {
+  '072003015': { desc: 'MEDIDOR DE AGUA CLASE B DN 15 - PLASTICO', priority: 1 },
+  '072002015': { desc: 'PRECINTO PARA MEDIDOR TIPO (ROTO SEAL) - PLAST NUMERADO', priority: 3 },
+  '070008001': { desc: 'CAJA INY CON TAPA: 400 X 200 X 165', priority: 2 },
+  '050048115': { desc: 'LLAVE MAESTRA PLAST HIBRIDA (INT METAL) DN 15 PEAD 25-SALIDA TL 20X27', priority: 4 },
+  '050056131': { desc: 'EMPALME PEAD 25 PLASTICO,SALIDA T.L. 20X27 PLASTICA', priority: 4 },
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const searchParams = req.nextUrl.searchParams
+    const filtroGravedad = searchParams.get('gravedad') || ''
+
+    async function fetchAll(supabase: any, table: string, select: string, batchSize: number = 1000) {
+      const allData: any[] = []
+      let offset = 0
+      while (true) {
+        const { data } = await supabase
+          .from(table)
+          .select(select)
+          .range(offset, offset + batchSize - 1)
+        
+        if (!data || data.length === 0) break
+        allData.push(...data)
+        if (data.length < batchSize) break
+        offset += batchSize
+      }
+      return allData
+    }
+
+    const odtsData = await fetchAll(supabase, 'odts', 'codigo_barras, numero, estado, cuadrilla_id, cuadrilla_nombre, medidor_serie')
+    const consumosData = await fetchAll(supabase, 'consumos', 'odt_codigo, producto_codigo, cantidad, series')
+    const movimientosData = await fetchAll(supabase, 'movimientos_obrador', 'desde_cuadrilla_codigo, desde_cuadrilla_descripcion, hacia_cuadrilla_codigo, hacia_cuadrilla_descripcion, producto_codigo, cantidad, tipo_movimiento, remito, fecha')
+    const stockData = await fetchAll(supabase, 'stock_obrador', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, ubicacion')
+    const obradorControlData = await fetchAll(supabase, 'obrador_control', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha')
+
+    const balanceMap = new Map<string, any>()
+
+    function getBalanceEntry(key: string, nombre: string = '') {
+      if (!balanceMap.has(key)) {
+        balanceMap.set(key, {
+          cuadrilla: key,
+          cuadrilla_nombre: nombre,
+          materiales: {} as Record<string, any>,
+          devueltos: {},
+          odtsCount: 0,
+          odtsVerdes: 0,
+          odtsAmarillos: 0,
+          movimientos: []
+        })
+      }
+      return balanceMap.get(key)
+    }
+
+    function getMaterialData(entry: any, code: string) {
+      if (!entry.materiales[code]) {
+        const master = MATERIAL_MASTER[code]
+        entry.materiales[code] = {
+          code,
+          desc: master?.desc || code,
+          priority: master?.priority || 99,
+          entregado: 0,
+          verificado: 0,
+          dudoso: 0,
+          devuelto: 0
+        }
+      }
+      return entry.materiales[code]
+    }
+
+    obradorControlData?.forEach((o: any) => {
+        const cuadrillaKey = o.cuadrilla_codigo
+        if (!cuadrillaKey || !o.producto_codigo) return
+        
+        const entry = getBalanceEntry(cuadrillaKey, o.cuadrilla_nombre || '')
+        const code = o.producto_codigo
+        const matData = getMaterialData(entry, code)
+
+        if (o.tipo_movimiento === 'SALIDA' || o.tipo_movimiento === 'ENVIO A OBRA' || o.tipo_movimiento === 'CONSUMO EN OBRA') {
+            matData.entregado += (parseFloat(o.cantidad) || 1)
+        }
+    })
+
+    movimientosData?.forEach((m: any) => {
+      let cuadrillaKey = m.hacia_cuadrilla_codigo
+      let cuadrillaNombre = m.hacia_cuadrilla_descripcion || ''
+      
+      if (!cuadrillaKey) {
+        cuadrillaKey = m.desde_cuadrilla_codigo
+        cuadrillaNombre = m.desde_cuadrilla_descripcion || ''
+      }
+
+      if (!cuadrillaKey || !m.producto_codigo) return
+      
+      const entry = getBalanceEntry(cuadrillaKey, cuadrillaNombre)
+      const code = m.producto_codigo
+      const cantidad = parseFloat(m.cantidad) || 1
+      const matData = getMaterialData(entry, code)
+
+      entry.movimientos.push({
+        producto: code,
+        cantidad: cantidad,
+        tipo: m.tipo_movimiento,
+        remito: m.remito || 'SIN REMITO',
+        fecha: m.fecha
+      })
+
+      if (m.tipo_movimiento === 'ENTRADA') {
+        matData.devuelto += cantidad
+      }
+    })
+
+    const consumosByOdt = new Map<string, { productos: string[], series: string[] }>()
+    consumosData?.forEach((c: any) => {
+      if (c.odt_codigo) {
+        if (!consumosByOdt.has(c.odt_codigo)) {
+          consumosByOdt.set(c.odt_codigo, { productos: [], series: [] })
+        }
+        const entry = consumosByOdt.get(c.odt_codigo)!
+        entry.productos.push(c.producto_codigo)
+        if (c.series) {
+          entry.series.push(c.series)
+        }
+      }
+    })
+
+    const odtStatusMap = new Map<string, string>()
+    odtsData?.forEach((o: any) => {
+      if (o.codigo_barras && o.estado) odtStatusMap.set(o.codigo_barras, o.estado)
+      if (o.numero && o.estado) odtStatusMap.set(o.numero, o.estado)
+    })
+
+    const odtCuadrillaMap = new Map<string, string>()
+    const odtMedidorSerieMap = new Map<string, string>()
+    odtsData?.forEach((o: any) => {
+      const cuadrilla = o.cuadrilla_id ? String(o.cuadrilla_id) : null
+      
+      if (o.codigo_barras && cuadrilla) {
+        odtCuadrillaMap.set(o.codigo_barras, cuadrilla)
+      }
+      if (o.numero && cuadrilla) {
+        odtCuadrillaMap.set(o.numero, cuadrilla)
+      }
+      
+      if (o.codigo_barras && o.medidor_serie) {
+        odtMedidorSerieMap.set(o.codigo_barras, o.medidor_serie)
+      }
+    })
+
+    const allSeriesUsed = new Map<string, string[]>()
+    const debugValidation = { total: 0, noOdtFound: 0, noEstado: 0, noCuadrilla: 0, verde: 0, amarillo: 0, rojo: 0 }
+
+    const useEstimatedEntregado = (obradorControlData?.length || 0) === 0
+
+    for (const [odtCodigo, data] of consumosByOdt) {
+      debugValidation.total++
+      const { productos, series } = data
+      
+      const filteredProducts = productos.filter((p: string) => !!MATERIAL_MASTER[p])
+
+      const countByCategory: MaterialCount = {
+        medidor: 0,
+        precinto: 0,
+        caja: 0,
+        llave: 0,
+        empalme: 0,
+        juntas: 0
+      }
+
+      filteredProducts.forEach((code: string) => {
+        const master = MATERIAL_MASTER[code]
+        if (master && master.priority === 1) countByCategory.medidor++
+        else if (master && master.priority === 2) countByCategory.caja++
+        else if (master && master.priority === 3) countByCategory.precinto++
+        else if (master && master.priority === 4) {
+             if (code === '050048115') countByCategory.llave++
+             if (code === '050056131') countByCategory.empalme++
+        }
+      })
+
+      const estadoODT = odtStatusMap.get(odtCodigo) || null
+      if (!estadoODT) {
+        debugValidation.noEstado++
+        continue
+      }
+
+      const medidorSerie = odtMedidorSerieMap.get(odtCodigo) || null
+      
+      const validation = validarODT(
+        countByCategory,
+        medidorSerie,
+        series,
+        allSeriesUsed,
+        estadoODT
+      )
+
+      const cuadrilla = odtCuadrillaMap.get(odtCodigo)
+      if (!cuadrilla) {
+        debugValidation.noCuadrilla++
+        continue
+      }
+
+      const entry = getBalanceEntry(cuadrilla)
+      entry.odtsCount++
+
+      const addMaterials = (code: string, type: 'verificado' | 'dudoso' | 'entregado') => {
+         const matData = getMaterialData(entry, code)
+         if (type === 'verificado') matData.verificado++
+         if (type === 'dudoso') matData.dudoso++
+         if (type === 'entregado' && useEstimatedEntregado) matData.entregado++
+      }
+
+      if (validation.estado === 'verde') {
+        debugValidation.verde++
+        entry.odtsVerdes++
+
+        filteredProducts.forEach((code: string) => addMaterials(code, 'verificado'))
+        if (useEstimatedEntregado) filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
+
+      } else if (validation.estado === 'amarillo' || validation.estado === 'rojo') {
+        if (validation.estado === 'amarillo') debugValidation.amarillo++
+        else debugValidation.rojo++
+        
+        entry.odtsAmarillos++
+
+        filteredProducts.forEach((code: string) => addMaterials(code, 'dudoso'))
+        if (useEstimatedEntregado) filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
+      }
+    }
+
+    const result = Array.from(balanceMap.values()).map((entry: any) => {
+      
+      const matList = Object.values(entry.materiales || {})
+      matList.sort((a: any, b: any) => a.priority - b.priority)
+
+      const diferencia: any = {}
+      let gravedad = 0
+
+      matList.forEach((mat: any) => {
+        diferencia[mat.code] = mat.entregado - mat.verificado
+
+        if (mat.priority === 1 && diferencia[mat.code] !== 0) gravedad += Math.abs(diferencia[mat.code]) * 2
+        if (mat.priority === 4 && diferencia[mat.code] !== 0) gravedad += Math.abs(diferencia[mat.code]) * 3
+      })
+
+      return {
+        cuadrilla: entry.cuadrilla,
+        cuadrilla_nombre: entry.cuadrilla_nombre,
+        materiales: matList,
+        diferencia,
+        gravedad,
+        odtsCount: entry.odtsCount,
+        odtsVerdes: entry.odtsVerdes,
+        odtsAmarillos: entry.odtsAmarillos,
+        isEstimated: useEstimatedEntregado
+      }
+    })
+
+    let filteredResult = result
+    if (filtroGravedad === 'rojo') {
+      filteredResult = result.filter((r: any) => r.gravedad >= 10)
+    } else if (filtroGravedad === 'amarillo') {
+      filteredResult = result.filter((r: any) => r.gravedad > 0 && r.gravedad < 10)
+    }
+
+    filteredResult.sort((a: any, b: any) => b.gravedad - a.gravedad)
+
+    return NextResponse.json({
+      ok: true,
+      balance: filteredResult,
+      totalCuadrillas: filteredResult.length
+    })
+
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+  }
+}
