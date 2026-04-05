@@ -158,6 +158,23 @@ export async function GET(req: NextRequest) {
 
     const useEstimatedEntregado = (obradorControlData?.length || 0) === 0
 
+    // Map series from consumption to material detail
+    // Key: odtCodigo, Value: map of code -> series[]
+    const odtSeriesMap = new Map<string, Map<string, string[]>>()
+    consumosData?.forEach((c: any) => {
+      if (c.odt_codigo && c.producto_codigo === '072003015' && c.series) {
+        if (!odtSeriesMap.has(c.odt_codigo)) {
+          odtSeriesMap.set(c.odt_codigo, new Map())
+        }
+        const codeMap = odtSeriesMap.get(c.odt_codigo)!
+        if (!codeMap.has('072003015')) {
+          codeMap.set('072003015', [])
+        }
+        const parts = c.series.split(',').map((s: string) => s.trim())
+        codeMap.get('072003015')!.push(...parts)
+      }
+    })
+
     for (const [odtCodigo, data] of consumosByOdt) {
       debugValidation.total++
       const { productos, series } = data
@@ -213,7 +230,24 @@ export async function GET(req: NextRequest) {
          const matData = getMaterialData(entry, code)
          if (type === 'verificado') matData.verificado++
          if (type === 'dudoso') matData.dudoso++
-         if (type === 'entregado' && useEstimatedEntregado) matData.entregado++
+         
+         if (type === 'entregado') {
+            matData.entregado++
+            
+            // Add series details if this is a medidor and we have series data
+            if (code === '072003015') {
+               const odtSeries = odtSeriesMap.get(odtCodigo)?.get('072003015')
+               if (odtSeries && odtSeries.length > 0) {
+                 odtSeries.forEach((s: string) => {
+                    matData.detalleEntregado.push({
+                      serie: s,
+                      remito: 'POR CONSUMO',
+                      fecha: ''
+                    })
+                 })
+               }
+            }
+         }
       }
 
       if (validation.estado === 'verde') {
