@@ -48,7 +48,8 @@ export async function GET(req: NextRequest) {
           materiales: {} as Record<string, any>,
           odtsCount: 0,
           odtsVerdes: 0,
-          odtsAmarillos: 0
+          odtsAmarillos: 0,
+          odtsList: [] as any[] // Store list of ODTs for export
         })
       }
       return balanceMap.get(key)
@@ -244,10 +245,23 @@ export async function GET(req: NextRequest) {
 
       if (validation.estado === 'verde') {
         entry.odtsVerdes++
+        // Add ODT to list
+        entry.odtsList.push({
+          odtCodigo,
+          estado: validation.estado,
+          fecha: '', // We don't have date easily accessible here without extra map
+          materiales: filteredProducts
+        })
         filteredProducts.forEach((code: string) => addMaterials(code, 'verificado'))
         filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
       } else if (validation.estado === 'amarillo' || validation.estado === 'rojo') {
         entry.odtsAmarillos++
+        entry.odtsList.push({
+          odtCodigo,
+          estado: validation.estado,
+          fecha: '',
+          materiales: filteredProducts
+        })
         filteredProducts.forEach((code: string) => addMaterials(code, 'dudoso'))
         filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
       }
@@ -275,6 +289,7 @@ export async function GET(req: NextRequest) {
         odtsCount: entry.odtsCount,
         odtsVerdes: entry.odtsVerdes,
         odtsAmarillos: entry.odtsAmarillos,
+        odtsList: entry.odtsList || [], // Export this
         isEstimated: useEstimatedEntregado
       }
     })

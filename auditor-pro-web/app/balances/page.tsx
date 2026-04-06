@@ -16,6 +16,13 @@ interface Material {
   detalleEntregado?: { serie: string, remito: string, fecha: string }[]
 }
 
+interface OdtItem {
+  odtCodigo: string
+  estado: string
+  fecha: string
+  materiales: string[]
+}
+
 interface BalanceData {
   cuadrilla: string
   cuadrilla_nombre?: string
@@ -25,6 +32,7 @@ interface BalanceData {
   odtsCount: number
   odtsVerdes: number
   odtsAmarillos: number
+  odtsList?: OdtItem[]
   isEstimated?: boolean
 }
 
@@ -129,61 +137,71 @@ export default function BalancesPage() {
 
   // Export Logic
   const handleExport = () => {
-    // 1. Prepare Resumen Sheet
-    const resumenData = sortedData.map(b => {
-      const row: any = {
-        'ID Cuadrilla': b.cuadrilla,
-        'Nombre Cuadrilla': b.cuadrilla_nombre,
-        'Total ODTs': b.odtsCount,
-        'ODTs Verdes': b.odtsVerdes,
-        'ODTs Amarillas': b.odtsAmarillos,
-        'Gravedad': b.gravedad,
-        'Medidores Entregados': b.materiales.find(m => m.code === '072003015')?.entregado || 0,
-        'Medidores Verificados': b.materiales.find(m => m.code === '072003015')?.verificado || 0,
-        'Diferencia Medidor': b.diferencia['072003015'] || 0,
-        'Cajas Entregadas': b.materiales.find(m => m.code === '070008001')?.entregado || 0,
-        'Cajas Verificadas': b.materiales.find(m => m.code === '070008001')?.verificado || 0,
-        'Diferencia Caja': b.diferencia['070008001'] || 0,
-        'Precintos Entregados': b.materiales.find(m => m.code === '072002015')?.entregado || 0,
-        'Precintos Verificados': b.materiales.find(m => m.code === '072002015')?.verificado || 0,
-        'Diferencia Precinto': b.diferencia['072002015'] || 0,
-        'Estado': b.gravedad > 10 ? 'ROJO' : b.gravedad > 0 ? 'AMARILLO' : 'VERDE'
-      }
-      return row
-    })
-
-    // 2. Prepare Detalle Sheet (flattened ODTs - this would ideally come from API, but we simulate for now or use available data)
-    // NOTE: To fully implement this, we need the ODT list from API. We can mock or fetch.
-    // For now, let's aggregate the series we have in detalleEntregado
-    const detalleRows: any[] = []
-    
+    // 1. Prepare Resumen Sheet (One row per Material per Cuadrilla)
+    const resumenRows: any[] = []
     sortedData.forEach(b => {
       b.materiales.forEach(m => {
-        if (m.detalleEntregado && m.detalleEntregado.length > 0) {
-          m.detalleEntregado.forEach(d => {
-            detalleRows.push({
-              'Cuadrilla ID': b.cuadrilla,
-              'Cuadrilla Nombre': b.cuadrilla_nombre,
-              'Codigo Material': m.code,
-              'Descripcion': m.desc,
-              'Serie': d.serie,
-              'Remito': d.remito,
-              'Fecha': d.fecha,
-              'Tipo': 'ENTREGADO'
-            })
-          })
-        }
+        const diff = m.entregado - m.verificado
+        let estado = 'OK'
+        if (diff < 0) estado = 'FALTANTE'
+        else if (diff > 0) estado = 'EXCESO'
+        
+        resumenRows.push({
+          'ID Cuadrilla': b.cuadrilla,
+          'Nombre Cuadrilla': b.cuadrilla_nombre,
+          'Material': m.desc,
+          'Código': m.code,
+          'Entregado': m.entregado,
+          'Verificado': m.verificado,
+          'Diferencia': diff,
+          'Estado': estado
+        })
       })
+    })
+
+    // 2. Prepare Detalle Sheet
+    const detalleRows: any[] = []
+    sortedData.forEach(b => {
+      if (b.odtsList && b.odtsList.length > 0) {
+        b.odtsList.forEach((odt: any) => {
+          // Find medidor serie if available in materiales detalleEntregado
+          const medidorMat = b.materiales.find(m => m.code === '072003015')
+          const serie = medidorMat?.detalleEntregado?.[0]?.serie || 'N/A' // This is tricky without mapping. 
+          // Ideally we map ODT to Serie. For now we just list ODTs.
+          
+          // Check if we have serie for this specific ODT from consumption
+          // We'd need to pass that info. For now, just ODT number.
+          
+          detalleRows.push({
+            'Nro ODT': odt.odtCodigo,
+            'Fecha': odt.fecha || 'N/A',
+            'ID Cuadrilla': b.cuadrilla,
+            'Cuadrilla': b.cuadrilla_nombre,
+            'Serie Medidor': 'VERIFICAR', // Placeholder
+            'Estado ODT': odt.estado.toUpperCase(),
+            'Materiales': odt.materiales?.join(', ')
+          })
+        })
+      }
     })
 
     const wb = XLSX.utils.book_new()
     
-    const ws1 = XLSX.utils.json_to_sheet(resumenData)
-    XLSX.utils.book_append_sheet(wb, ws1, "Resumen Balances")
+    // Solapa 1: Resumen
+    const ws1 = XLSX.utils.json_to_sheet(resumenRows)
+    const ws1Cols = [
+      { wch: 10 }, { wch: 25 }, { wch: 40 }, { wch: 15 }, 
+      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }
+    ]
+    ws1['!cols'] = ws1Cols
+    XLSX.utils.book_append_sheet(wb, ws1, "Resumen de Balances")
     
+    // Solapa 2: Detalle
     if (detalleRows.length > 0) {
       const ws2 = XLSX.utils.json_to_sheet(detalleRows)
-      XLSX.utils.book_append_sheet(wb, ws2, "Detalle Series")
+      const ws2Cols = [{ wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 30 }]
+      ws2['!cols'] = ws2Cols
+      XLSX.utils.book_append_sheet(wb, ws2, "Detalle de Instalaciones")
     }
 
     XLSX.writeFile(wb, `Auditoria_Balance_${new Date().toISOString().split('T')[0]}.xlsx`)
