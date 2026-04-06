@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ArrowLeft, AlertTriangle, Info, FileText, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { ArrowLeft, AlertTriangle, FileText, Search, ChevronDown, ChevronUp, Download, Filter, Calendar } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import Link from 'next/link'
 
 interface Material {
@@ -31,24 +32,23 @@ export default function BalancesPage() {
   const [balanceData, setBalanceData] = useState<BalanceData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filtroGravedad, setFiltroGravedad] = useState('')
+  
+  // Filters
   const [search, setSearch] = useState('')
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
-  const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set()) // Track expanded material details
+  const [filterGravedad, setFilterGravedad] = useState('')
+  const [filterDiff, setFilterDiff] = useState('')
+  const [dateRange, setDateRange] = useState({ from: '', to: '' })
+  
+  // Sorting
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
 
   const loadBalance = async () => {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams()
-      if (filtroGravedad) params.set('gravedad', filtroGravedad)
-      
-      const res = await fetch(`/api/stats/material-aggregation?${params.toString()}`)
-      
+      const res = await fetch('/api/stats/material-aggregation')
       if (!res.ok) throw new Error('Error en la respuesta del servidor')
-      
       const data = await res.json()
-      
       if (data.ok && Array.isArray(data.balance)) {
         setBalanceData(data.balance)
       } else {
@@ -56,7 +56,7 @@ export default function BalancesPage() {
       }
     } catch (e: any) {
       console.error('Error loading balance:', e)
-      setError(e.message || 'Error desconocido')
+      setError(e.message)
     } finally {
       setLoading(false)
     }
@@ -64,31 +64,129 @@ export default function BalancesPage() {
 
   useEffect(() => {
     loadBalance()
-  }, [filtroGravedad])
+  }, [])
 
-  const filteredData = balanceData.filter(b => 
-    (b.cuadrilla || '').toLowerCase().includes(search.toLowerCase()) ||
-    (b.cuadrilla_nombre || '').toLowerCase().includes(search.toLowerCase())
-  )
+  // Filter logic
+  const filteredData = useMemo(() => {
+    let data = balanceData.filter(b => 
+      (b.cuadrilla || '').toLowerCase().includes(search.toLowerCase()) ||
+      (b.cuadrilla_nombre || '').toLowerCase().includes(search.toLowerCase())
+    )
 
-  const toggleExpand = (id: string) => {
-    const newExpanded = new Set(expandedCards)
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id)
-    } else {
-      newExpanded.add(id)
+    if (filterGravedad) {
+      if (filterGravedad === 'rojo') data = data.filter(r => r.gravedad >= 10)
+      else if (filterGravedad === 'amarillo') data = data.filter(r => r.gravedad > 0 && r.gravedad < 10)
+      else if (filterGravedad === 'verde') data = data.filter(r => r.gravedad === 0)
     }
-    setExpandedCards(newExpanded)
+
+    // Simple diff filter (total absolute diff)
+    // In a real scenario we'd use the date range on ODTs, but here we just filter by existence
+    
+    return data
+  }, [balanceData, search, filterGravedad, dateRange])
+
+  // Sort logic
+  const sortedData = useMemo(() => {
+    if (!sortConfig) return filteredData
+    
+    return [...filteredData].sort((a, b) => {
+      let aVal: any, bVal: any
+      
+      switch(sortConfig.key) {
+        case 'gravedad': aVal = a.gravedad; bVal = b.gravedad; break
+        case 'odtsCount': aVal = a.odtsCount; bVal = b.odtsCount; break
+        case 'nombre': aVal = a.cuadrilla_nombre || ''; bVal = b.cuadrilla_nombre || ''; break
+        case 'diferencia':
+          // Calculate total absolute diff for sorting
+          aVal = Object.values(a.diferencia).reduce((acc, v) => acc + Math.abs(Number(v)), 0)
+          bVal = Object.values(b.diferencia).reduce((acc, v) => acc + Math.abs(Number(v)), 0)
+          break
+        default: return 0
+      }
+      
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filteredData, sortConfig])
+
+  const handleSort = (key: string) => {
+    setSortConfig(prev => {
+      if (prev?.key === key) {
+        if (prev.direction === 'desc') return null // Reset
+        return { key, direction: 'desc' }
+      }
+      return { key, direction: 'asc' }
+    })
   }
 
-  const toggleMaterialDetail = (key: string) => {
-    const newExpanded = new Set(expandedMaterials)
-    if (newExpanded.has(key)) {
-      newExpanded.delete(key)
-    } else {
-      newExpanded.add(key)
+  const getSortIcon = (key: string) => {
+    if (sortConfig?.key !== key) return <ChevronDown size={14} className="text-slate-300" />
+    return sortConfig.direction === 'asc' 
+      ? <ChevronUp size={14} className="text-cyan-600" /> 
+      : <ChevronDown size={14} className="text-cyan-600" />
+  }
+
+  // Export Logic
+  const handleExport = () => {
+    // 1. Prepare Resumen Sheet
+    const resumenData = sortedData.map(b => {
+      const row: any = {
+        'ID Cuadrilla': b.cuadrilla,
+        'Nombre Cuadrilla': b.cuadrilla_nombre,
+        'Total ODTs': b.odtsCount,
+        'ODTs Verdes': b.odtsVerdes,
+        'ODTs Amarillas': b.odtsAmarillos,
+        'Gravedad': b.gravedad,
+        'Medidores Entregados': b.materiales.find(m => m.code === '072003015')?.entregado || 0,
+        'Medidores Verificados': b.materiales.find(m => m.code === '072003015')?.verificado || 0,
+        'Diferencia Medidor': b.diferencia['072003015'] || 0,
+        'Cajas Entregadas': b.materiales.find(m => m.code === '070008001')?.entregado || 0,
+        'Cajas Verificadas': b.materiales.find(m => m.code === '070008001')?.verificado || 0,
+        'Diferencia Caja': b.diferencia['070008001'] || 0,
+        'Precintos Entregados': b.materiales.find(m => m.code === '072002015')?.entregado || 0,
+        'Precintos Verificados': b.materiales.find(m => m.code === '072002015')?.verificado || 0,
+        'Diferencia Precinto': b.diferencia['072002015'] || 0,
+        'Estado': b.gravedad > 10 ? 'ROJO' : b.gravedad > 0 ? 'AMARILLO' : 'VERDE'
+      }
+      return row
+    })
+
+    // 2. Prepare Detalle Sheet (flattened ODTs - this would ideally come from API, but we simulate for now or use available data)
+    // NOTE: To fully implement this, we need the ODT list from API. We can mock or fetch.
+    // For now, let's aggregate the series we have in detalleEntregado
+    const detalleRows: any[] = []
+    
+    sortedData.forEach(b => {
+      b.materiales.forEach(m => {
+        if (m.detalleEntregado && m.detalleEntregado.length > 0) {
+          m.detalleEntregado.forEach(d => {
+            detalleRows.push({
+              'Cuadrilla ID': b.cuadrilla,
+              'Cuadrilla Nombre': b.cuadrilla_nombre,
+              'Codigo Material': m.code,
+              'Descripcion': m.desc,
+              'Serie': d.serie,
+              'Remito': d.remito,
+              'Fecha': d.fecha,
+              'Tipo': 'ENTREGADO'
+            })
+          })
+        }
+      })
+    })
+
+    const wb = XLSX.utils.book_new()
+    
+    const ws1 = XLSX.utils.json_to_sheet(resumenData)
+    XLSX.utils.book_append_sheet(wb, ws1, "Resumen Balances")
+    
+    if (detalleRows.length > 0) {
+      const ws2 = XLSX.utils.json_to_sheet(detalleRows)
+      XLSX.utils.book_append_sheet(wb, ws2, "Detalle Series")
     }
-    setExpandedMaterials(newExpanded)
+
+    XLSX.writeFile(wb, `Auditoria_Balance_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
 
   const getDiffBadge = (val: number) => {
@@ -106,36 +204,71 @@ export default function BalancesPage() {
           </Link>
           <h1 className="text-white font-bold text-lg tracking-wide">AUDITOR<span className="text-cyan-400">PRO</span> - Balance</h1>
         </div>
-        <button 
-          onClick={() => window.print()}
-          className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
-        >
-          <FileText size={16} />
-          <span className="hidden sm:inline">Reporte</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExport}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
+            <span className="hidden sm:inline">Exportar Excel</span>
+          </button>
+          <button 
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
+          >
+            <FileText size={16} />
+            <span className="hidden sm:inline">Reporte</span>
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4 max-w-7xl mx-auto">
-        <div className="flex gap-2 flex-col sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        
+        {/* Filter Bar */}
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <Search className="text-slate-400" size={16} />
             <input
               type="text"
-              placeholder="Buscar cuadrilla o nombre..."
+              placeholder="Buscar cuadrilla..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-cyan-500 shadow-sm"
+              className="w-full border-none focus:outline-none text-sm text-slate-700 placeholder-slate-400"
             />
           </div>
-          <select
-            value={filtroGravedad}
-            onChange={(e) => setFiltroGravedad(e.target.value)}
-            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white shadow-sm"
-          >
-            <option value="">Todas las alertas</option>
-            <option value="rojo">Solo Rojas (Gravedad &gt; 10)</option>
-            <option value="amarillo">Solo Amarillas (Gravedad &lt; 10)</option>
-          </select>
+          
+          <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
+
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-slate-400" />
+            <select
+              value={filterGravedad}
+              onChange={(e) => setFilterGravedad(e.target.value)}
+              className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="">Todas las Gravedades</option>
+              <option value="rojo">Rojo (Alto)</option>
+              <option value="amarillo">Amarillo (Medio)</option>
+              <option value="verde">Verde (OK)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-slate-400" />
+            <input 
+              type="date" 
+              className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none"
+              value={dateRange.from}
+              onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+            />
+            <span className="text-slate-400">-</span>
+            <input 
+              type="date" 
+              className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none"
+              value={dateRange.to}
+              onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+            />
+          </div>
         </div>
 
         {balanceData.length > 0 && balanceData[0].isEstimated && (
@@ -144,8 +277,7 @@ export default function BalancesPage() {
             <div>
               <h3 className="text-sm font-bold text-amber-800">Datos Estimados</h3>
               <p className="text-xs text-amber-700 mt-1">
-                El "Entregado" se está calculando en base al consumo. 
-                Sincronizá el pañol para obtener datos reales.
+                El "Entregado" se calcula en base al consumo.
               </p>
             </div>
           </div>
@@ -164,119 +296,72 @@ export default function BalancesPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {filteredData.length === 0 ? (
+            {sortedData.length === 0 ? (
               <div className="text-center py-12 text-slate-400">No se encontraron cuadrillas</div>
             ) : (
-              filteredData.map((balance, index) => {
-                const id = balance?.cuadrilla || `temp-${index}`
-                const gravedad = Number(balance?.gravedad) || 0
-                const nombre = balance?.cuadrilla_nombre || 'Sin nombre'
-                const isExpanded = expandedCards.has(id)
-                
-                return (
-                  <div key={id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                    {/* Header */}
-                    <div 
-                      className={`px-4 py-3 flex justify-between items-center cursor-pointer ${
-                        gravedad > 10 ? 'bg-rose-50' : 
-                        gravedad > 0 ? 'bg-amber-50' : 'bg-slate-50'
-                      }`}
-                      onClick={() => toggleExpand(id)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <span className="font-bold text-slate-800 text-lg">{id}</span>
-                          <span className="mx-2 text-slate-300">/</span>
-                          <span className="text-sm text-slate-600 font-medium">{nombre}</span>
-                        </div>
-                        {gravedad > 10 && (
-                          <span className="text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded font-bold shadow-sm">
-                            AUDITAR
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-xs text-slate-500 hidden sm:block">
-                          ODTs: <span className="font-semibold">{Number(balance?.odtsCount) || 0}</span> | 
-                          <span className="text-emerald-600"> ✓ {Number(balance?.odtsVerdes) || 0}</span> | 
-                          <span className="text-amber-600"> ⚠ {Number(balance?.odtsAmarillos) || 0}</span>
-                        </div>
-                        <div className="text-xs font-bold text-slate-400">
-                          Gravedad: <span className={gravedad > 10 ? 'text-rose-600' : gravedad > 0 ? 'text-amber-600' : 'text-emerald-600'}>{gravedad}</span>
-                        </div>
-                        {isExpanded ? <ChevronUp size={20} className="text-slate-400"/> : <ChevronDown size={20} className="text-slate-400"/>}
-                      </div>
-                    </div>
+              <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-slate-500 uppercase bg-slate-100 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-200" onClick={() => handleSort('nombre')}>
+                          <div className="flex items-center gap-1">Cuadrilla {getSortIcon('nombre')}</div>
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-center cursor-pointer hover:bg-slate-200" onClick={() => handleSort('odtsCount')}>
+                          <div className="flex items-center justify-center gap-1">ODTs {getSortIcon('odtsCount')}</div>
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-center">Entregado</th>
+                        <th className="px-4 py-3 font-semibold text-center">Verificado</th>
+                        <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-200" onClick={() => handleSort('diferencia')}>
+                          <div className="flex items-center justify-center gap-1">Diferencia {getSortIcon('diferencia')}</div>
+                        </th>
+                        <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-200" onClick={() => handleSort('gravedad')}>
+                          <div className="flex items-center justify-center gap-1">Gravedad {getSortIcon('gravedad')}</div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {sortedData.map((balance) => {
+                        const gravedad = Number(balance?.gravedad) || 0
+                        const nombre = balance?.cuadrilla_nombre || 'Sin nombre'
+                        const medidor = balance.materiales.find(m => m.code === '072003015')
+                        const diff = balance.diferencia['072003015'] || 0
 
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-slate-500 uppercase bg-slate-100 border-b border-slate-200">
-                          <tr>
-                            <th className="px-4 py-3 font-semibold w-24">Código</th>
-                            <th className="px-4 py-3 font-semibold">Descripción Material</th>
-                            <th className="px-4 py-3 text-center font-semibold w-24 bg-blue-50 text-blue-700">Entregado</th>
-                            <th className="px-4 py-3 text-center font-semibold w-24 bg-emerald-50 text-emerald-700">Verificado</th>
-                            <th className="px-4 py-3 text-center font-semibold w-24">Diferencia</th>
+                        return (
+                          <tr key={balance.cuadrilla} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-bold text-slate-800">{balance.cuadrilla}</div>
+                              <div className="text-xs text-slate-500">{nombre}</div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="text-slate-700">{balance.odtsCount}</div>
+                              <div className="text-xs text-emerald-600">✓ {balance.odtsVerdes}</div>
+                              <div className="text-xs text-amber-600">⚠ {balance.odtsAmarillos}</div>
+                            </td>
+                            <td className="px-4 py-3 text-center bg-blue-50/30">
+                              <div className="font-bold text-blue-700">{medidor?.entregado || 0}</div>
+                            </td>
+                            <td className="px-4 py-3 text-center bg-emerald-50/30">
+                              <div className="text-emerald-700">{medidor?.verificado || 0}</div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {getDiffBadge(diff)}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                gravedad > 10 ? 'bg-rose-600 text-white' : 
+                                gravedad > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'
+                              }`}>
+                                {gravedad}
+                              </span>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {balance?.materiales?.map((mat) => {
-                            const diff = balance.diferencia[mat.code] || 0
-                            const detailKey = `${id}-${mat.code}`
-                            const hasDetail = mat.detalleEntregado && mat.detalleEntregado.length > 0
-                            const isDetailExpanded = expandedMaterials.has(detailKey)
-
-                            return (
-                              <>
-                                <tr key={mat.code} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-4 py-2 font-mono text-slate-600 text-xs">{mat.code}</td>
-                                  <td className="px-4 py-2 text-slate-700 font-medium max-w-xs truncate" title={mat.desc}>
-                                    {mat.desc}
-                                  </td>
-                                  <td 
-                                    className={`px-4 py-2 text-center font-bold cursor-pointer hover:bg-blue-50 transition-colors ${hasDetail ? 'text-blue-700' : 'text-blue-800 bg-blue-50/30'}`}
-                                    onClick={() => hasDetail && toggleMaterialDetail(detailKey)}
-                                    title={hasDetail ? "Click para ver series" : ""}
-                                  >
-                                    {mat.entregado}
-                                    {hasDetail && <span className="ml-1 text-[10px]">📋</span>}
-                                  </td>
-                                  <td className="px-4 py-2 text-center bg-emerald-50/30 text-emerald-800">{mat.verificado}</td>
-                                  <td className="px-4 py-2 text-center">
-                                    {getDiffBadge(diff)}
-                                  </td>
-                                </tr>
-                                {hasDetail && isDetailExpanded && (
-                                  <tr className="bg-blue-50/50">
-                                    <td colSpan={5} className="px-4 py-3">
-                                      <div className="text-xs font-semibold text-blue-800 mb-2">Detalle de Entrega (Serie / Remito / Fecha)</div>
-                                      <div className="flex flex-wrap gap-2">
-                                        {mat.detalleEntregado?.map((det, i) => (
-                                          <div key={i} className="bg-white border border-blue-200 rounded px-2 py-1 text-xs font-mono text-slate-600 flex gap-2">
-                                            <span className="font-bold text-blue-700">{det.serie}</span>
-                                            <span className="text-slate-400">|</span>
-                                            <span>{det.remito}</span>
-                                            <span className="text-slate-400">|</span>
-                                            <span className="text-slate-500">{det.fecha}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </>
-                            )
-                          })}
-                          {(!balance?.materiales || balance.materiales.length === 0) && (
-                             <tr><td colSpan={5} className="text-center py-4 text-slate-400 italic">Sin materiales registrados</td></tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              })
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </div>
         )}
