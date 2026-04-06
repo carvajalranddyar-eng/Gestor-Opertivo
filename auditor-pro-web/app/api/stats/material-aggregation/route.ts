@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const consumosData = await fetchAll(supabase, 'consumos', 'odt_codigo, producto_codigo, cantidad, series')
     const movimientosData = await fetchAll(supabase, 'movimientos_obrador', 'desde_cuadrilla_codigo, desde_cuadrilla_descripcion, hacia_cuadrilla_codigo, hacia_cuadrilla_descripcion, producto_codigo, cantidad, tipo_movimiento, remito, fecha, serie')
     const stockData = await fetchAll(supabase, 'stock_obrador', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, ubicacion')
-    const obradorControlData = await fetchAll(supabase, 'obrador_control', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha, serie')
+    const obradorControlData = await fetchAll(supabase, 'obrador_control', 'cuadrilla_codigo, cuadrilla_nombre, producto_codigo, cantidad, tipo_movimiento, fecha, serie, remito')
 
     const balanceMap = new Map<string, any>()
 
@@ -46,11 +46,9 @@ export async function GET(req: NextRequest) {
           cuadrilla: key,
           cuadrilla_nombre: nombre,
           materiales: {} as Record<string, any>,
-          devueltos: {},
           odtsCount: 0,
           odtsVerdes: 0,
-          odtsAmarillos: 0,
-          movimientos: []
+          odtsAmarillos: 0
         })
       }
       return balanceMap.get(key)
@@ -73,7 +71,10 @@ export async function GET(req: NextRequest) {
       return entry.materiales[code]
     }
 
-    // Process obrador_control (Entregado Real with Series)
+    // 1. Process obrador_control (Real Data)
+    const useEstimatedEntregado = (obradorControlData?.length || 0) === 0
+    console.log('useEstimatedEntregado:', useEstimatedEntregado, 'records:', obradorControlData?.length)
+
     obradorControlData?.forEach((o: any) => {
         const cuadrillaKey = o.cuadrilla_codigo
         if (!cuadrillaKey || !o.producto_codigo) return
@@ -84,9 +85,10 @@ export async function GET(req: NextRequest) {
 
         if (o.tipo_movimiento === 'SALIDA' || o.tipo_movimiento === 'ENVIO A OBRA' || o.tipo_movimiento === 'CONSUMO EN OBRA') {
             matData.entregado += (parseFloat(o.cantidad) || 1)
-            if (o.serie) {
+            
+            if (o.serie || o.remito) {
               matData.detalleEntregado.push({
-                serie: o.serie,
+                serie: o.serie || 'N/A',
                 remito: o.remito || 'SIN REMITO',
                 fecha: o.fecha || ''
               })
@@ -94,7 +96,7 @@ export async function GET(req: NextRequest) {
         }
     })
 
-    // Process movimientos (Devueltos with Series)
+    // 2. Process movimientos (Devueltos)
     movimientosData?.forEach((m: any) => {
       let cuadrillaKey = m.hacia_cuadrilla_codigo
       let cuadrillaNombre = m.hacia_cuadrilla_descripcion || ''
@@ -116,6 +118,23 @@ export async function GET(req: NextRequest) {
       }
     })
 
+    // 3. Prepare series map from consumption
+    const odtSeriesMap = new Map<string, Map<string, string[]>>()
+    consumosData?.forEach((c: any) => {
+      if (c.odt_codigo && c.producto_codigo === '072003015' && c.series) {
+        if (!odtSeriesMap.has(c.odt_codigo)) {
+          odtSeriesMap.set(c.odt_codigo, new Map())
+        }
+        const codeMap = odtSeriesMap.get(c.odt_codigo)!
+        if (!codeMap.has('072003015')) {
+          codeMap.set('072003015', [])
+        }
+        const parts = c.series.split(',').map((s: string) => s.trim())
+        codeMap.get('072003015')!.push(...parts)
+      }
+    })
+
+    // 4. Process ODTs for verification
     const consumosByOdt = new Map<string, { productos: string[], series: string[] }>()
     consumosData?.forEach((c: any) => {
       if (c.odt_codigo) {
@@ -154,29 +173,8 @@ export async function GET(req: NextRequest) {
     })
 
     const allSeriesUsed = new Map<string, string[]>()
-    const debugValidation = { total: 0, noOdtFound: 0, noEstado: 0, noCuadrilla: 0, verde: 0, amarillo: 0, rojo: 0 }
-
-    const useEstimatedEntregado = (obradorControlData?.length || 0) === 0
-
-    // Map series from consumption to material detail
-    // Key: odtCodigo, Value: map of code -> series[]
-    const odtSeriesMap = new Map<string, Map<string, string[]>>()
-    consumosData?.forEach((c: any) => {
-      if (c.odt_codigo && c.producto_codigo === '072003015' && c.series) {
-        if (!odtSeriesMap.has(c.odt_codigo)) {
-          odtSeriesMap.set(c.odt_codigo, new Map())
-        }
-        const codeMap = odtSeriesMap.get(c.odt_codigo)!
-        if (!codeMap.has('072003015')) {
-          codeMap.set('072003015', [])
-        }
-        const parts = c.series.split(',').map((s: string) => s.trim())
-        codeMap.get('072003015')!.push(...parts)
-      }
-    })
 
     for (const [odtCodigo, data] of consumosByOdt) {
-      debugValidation.total++
       const { productos, series } = data
       
       const filteredProducts = productos.filter((p: string) => !!MATERIAL_MASTER[p])
@@ -202,10 +200,7 @@ export async function GET(req: NextRequest) {
       })
 
       const estadoODT = odtStatusMap.get(odtCodigo) || null
-      if (!estadoODT) {
-        debugValidation.noEstado++
-        continue
-      }
+      if (!estadoODT) continue
 
       const medidorSerie = odtMedidorSerieMap.get(odtCodigo) || null
       
@@ -218,10 +213,7 @@ export async function GET(req: NextRequest) {
       )
 
       const cuadrilla = odtCuadrillaMap.get(odtCodigo)
-      if (!cuadrilla) {
-        debugValidation.noCuadrilla++
-        continue
-      }
+      if (!cuadrilla) continue
 
       const entry = getBalanceEntry(cuadrilla)
       entry.odtsCount++
@@ -234,8 +226,8 @@ export async function GET(req: NextRequest) {
          if (type === 'entregado') {
             matData.entregado++
             
-            // Add series details if this is a medidor and we have series data
-            if (code === '072003015') {
+            // Add series only if estimated (no obrador data)
+            if (useEstimatedEntregado && code === '072003015') {
                const odtSeries = odtSeriesMap.get(odtCodigo)?.get('072003015')
                if (odtSeries && odtSeries.length > 0) {
                  odtSeries.forEach((s: string) => {
@@ -251,25 +243,17 @@ export async function GET(req: NextRequest) {
       }
 
       if (validation.estado === 'verde') {
-        debugValidation.verde++
         entry.odtsVerdes++
-
         filteredProducts.forEach((code: string) => addMaterials(code, 'verificado'))
         filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
-
       } else if (validation.estado === 'amarillo' || validation.estado === 'rojo') {
-        if (validation.estado === 'amarillo') debugValidation.amarillo++
-        else debugValidation.rojo++
-        
         entry.odtsAmarillos++
-
         filteredProducts.forEach((code: string) => addMaterials(code, 'dudoso'))
         filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
       }
     }
 
     const result = Array.from(balanceMap.values()).map((entry: any) => {
-      
       const matList = Object.values(entry.materiales || {})
       matList.sort((a: any, b: any) => a.priority - b.priority)
 
@@ -278,7 +262,6 @@ export async function GET(req: NextRequest) {
 
       matList.forEach((mat: any) => {
         diferencia[mat.code] = mat.entregado - mat.verificado
-
         if (mat.priority === 1 && diferencia[mat.code] !== 0) gravedad += Math.abs(diferencia[mat.code]) * 2
         if (mat.priority === 4 && diferencia[mat.code] !== 0) gravedad += Math.abs(diferencia[mat.code]) * 3
       })
