@@ -255,7 +255,7 @@ export async function GET(req: NextRequest) {
         entry.odtsVerdes++
 
         filteredProducts.forEach((code: string) => addMaterials(code, 'verificado'))
-        if (useEstimatedEntregado) filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
+        filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
 
       } else if (validation.estado === 'amarillo' || validation.estado === 'rojo') {
         if (validation.estado === 'amarillo') debugValidation.amarillo++
@@ -264,7 +264,7 @@ export async function GET(req: NextRequest) {
         entry.odtsAmarillos++
 
         filteredProducts.forEach((code: string) => addMaterials(code, 'dudoso'))
-        if (useEstimatedEntregado) filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
+        filteredProducts.forEach((code: string) => addMaterials(code, 'entregado'))
       }
     }
 
