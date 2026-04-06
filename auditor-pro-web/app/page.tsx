@@ -254,6 +254,7 @@ export default function HomePage() {
   const [detailData, setDetailData] = useState<any>(null)
   const [showClassifyModal, setShowClassifyModal] = useState(false)
   const [clasificando, setClasificando] = useState(false)
+  const [cuadrillasList, setCuadrillasList] = useState<string[]>([]) // Lista de cuadrillas dinámica
 
   // Filters for optimized API
   const [filtroMateriales, setFiltroMateriales] = useState('')
@@ -318,6 +319,26 @@ export default function HomePage() {
   useEffect(() => {
     loadOdtsOptimized(true)
   }, [filtroMateriales, filtroEstado, filtroCuadrilla, filtroPSM])
+
+  // Cargar lista de cuadrillas
+  useEffect(() => {
+    const fetchCuadrillas = async () => {
+      try {
+        const res = await fetch('/api/odts-optimized', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ getCuadrillas: true })
+        })
+        const data = await res.json()
+        if (data.ok && data.cuadrillas) {
+          setCuadrillasList(data.cuadrillas.sort())
+        }
+      } catch (e) {
+        console.error('Error loading cuadrillas:', e)
+      }
+    }
+    fetchCuadrillas()
+  }, [])
 
   // Debounced search
   useEffect(() => {
@@ -604,10 +625,9 @@ export default function HomePage() {
             className="text-xs px-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-blue-400 bg-white"
           >
             <option value="">Todas las Cuadrillas</option>
-            <option value="GALLO">GALLO</option>
-            <option value="BARRAZA">BARRAZA</option>
-            <option value="MELGAR">MELGAR</option>
-            <option value="VEGA">VEGA</option>
+            {cuadrillasList.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
           </select>
 
           {/* Filtro Estado PSM (R11, R20, etc) */}

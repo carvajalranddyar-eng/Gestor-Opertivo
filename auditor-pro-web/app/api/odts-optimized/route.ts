@@ -271,3 +271,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 }
+
+// Endpoint to get list of unique cuadrillas
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    if (body.getCuadrillas) {
+      const { data } = await supabase
+        .from('odts')
+        .select('cuadrilla_nombre')
+        .not('cuadrilla_nombre', 'is', null)
+      
+      const cuadrillas = [...new Set(data?.map((o: any) => o.cuadrilla_nombre).filter(Boolean))]
+      return NextResponse.json({ ok: true, cuadrillas })
+    }
+    return NextResponse.json({ ok: false, error: 'Invalid action' }, { status: 400 })
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+  }
+}
