@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import { useAudit } from '@/lib/audit-context'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Play, ChevronRight, Search, CheckCircle, XCircle, Clock, X, Wifi, WifiOff, Settings } from 'lucide-react'
+import Link from 'next/link'
+import { RefreshCw, Play, ChevronRight, Search, CheckCircle, XCircle, Clock, X, Wifi, WifiOff, Settings, TrendingDown } from 'lucide-react'
 
 interface ProxyStatus {
   connected: boolean
@@ -146,15 +147,25 @@ function DetalleODT({ odt, detailData, loadingDetail, onClose, onBuscar }: { odt
           <div className="bg-white border border-slate-200 rounded-lg p-3">
             <div className="text-xs font-semibold text-slate-600 uppercase mb-2">Verificación básica</div>
             <div className="flex gap-4 text-xs">
-              <span className={analisis?.tieneCaja ? 'text-emerald-600' : 'text-rose-600'}>
-                {analisis?.tieneCaja ? '✅' : '❌'} Caja
-              </span>
-              <span className={analisis?.tienePrecinto ? 'text-emerald-600' : 'text-rose-600'}>
-                {analisis?.tienePrecinto ? '✅' : '❌'} Precinto
-              </span>
-              <span className={analisis?.tieneMedidor ? 'text-emerald-600' : 'text-rose-600'}>
-                {analisis?.tieneMedidor ? '✅' : '❌'} Medidor
-              </span>
+              {(() => {
+                const counts = analisis?.countByCategory || {}
+                const tieneCaja = (counts.caja || 0) > 0
+                const tienePrecinto = (counts.precinto || 0) > 0
+                const tieneMedidor = (counts.medidor || 0) > 0
+                return (
+                  <>
+                    <span className={tieneCaja ? 'text-emerald-600' : 'text-rose-600'}>
+                      {tieneCaja ? '✅' : '❌'} Caja
+                    </span>
+                    <span className={tienePrecinto ? 'text-emerald-600' : 'text-rose-600'}>
+                      {tienePrecinto ? '✅' : '❌'} Precinto
+                    </span>
+                    <span className={tieneMedidor ? 'text-emerald-600' : 'text-rose-600'}>
+                      {tieneMedidor ? '✅' : '❌'} Medidor
+                    </span>
+                  </>
+                )
+              })()}
             </div>
           </div>
 
@@ -237,14 +248,18 @@ export default function HomePage() {
   const [loadingOptimized, setLoadingOptimized] = useState(false)
   const [page, setPage] = useState(0)
   const [totalOdts, setTotalOdts] = useState(0)
-  const [statsApi, setStatsApi] = useState<{conMateriales: number, sinMateriales: number}>({ conMateriales: 0, sinMateriales: 0 })
+  const [statsApi, setStatsApi] = useState<{conMateriales: number, sinMateriales: number, rojo: number, amarillo: number, verde: number, naranja: number}>({ conMateriales: 0, sinMateriales: 0, rojo: 0, amarillo: 0, verde: 0, naranja: 0 })
   const [tieneMas, setTieneMas] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [detailData, setDetailData] = useState<any>(null)
+  const [showClassifyModal, setShowClassifyModal] = useState(false)
+  const [clasificando, setClasificando] = useState(false)
 
   // Filters for optimized API
   const [filtroMateriales, setFiltroMateriales] = useState('')
-  const [filtroEstado, setFiltroEstado] = useState('')
+  const [filtroEstado, setFiltroEstado] = useState('') // Estado de auditoría
+  const [filtroCuadrilla, setFiltroCuadrilla] = useState('')
+  const [filtroPSM, setFiltroPSM] = useState('') // Estado PSM (R11, R20, etc)
 
   // Load ODTs with pagination
   const loadOdtsOptimized = async (resetPage = false) => {
@@ -257,6 +272,8 @@ export default function HomePage() {
       if (busquedaLocal) params.set('search', busquedaLocal)
       if (filtroMateriales) params.set('filtro', filtroMateriales)
       if (filtroEstado) params.set('estado', filtroEstado)
+      if (filtroCuadrilla) params.set('cuadrilla', filtroCuadrilla)
+      if (filtroPSM) params.set('psm_estado', filtroPSM)
 
       const res = await fetch(`/api/odts-optimized?${params.toString()}`)
       const data = await res.json()
@@ -300,7 +317,7 @@ export default function HomePage() {
   // Initial load
   useEffect(() => {
     loadOdtsOptimized(true)
-  }, [filtroMateriales, filtroEstado])
+  }, [filtroMateriales, filtroEstado, filtroCuadrilla, filtroPSM])
 
   // Debounced search
   useEffect(() => {
@@ -521,6 +538,10 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Link href="/balances" className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 bg-amber-50 border-amber-200 text-amber-700">
+              <TrendingDown size={12} />
+              Balances
+            </Link>
             <button onClick={() => loadOdtsOptimized(true)} disabled={loadingOptimized}
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
               <RefreshCw size={12} className={loadingOptimized ? 'animate-spin' : ''} />
@@ -529,7 +550,7 @@ export default function HomePage() {
             {selectedOdts.size > 0 && (
               <div className="flex items-center gap-1 ml-2">
                 <span className="text-xs text-slate-500">{selectedOdts.size} seleccionados</span>
-                <button onClick={() => alert('Funcionalidad de reporte por lotes - seleccionar tipo de clasificación')}
+                <button onClick={() => setShowClassifyModal(true)}
                   className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
                   📋 Clasificar
                 </button>
@@ -546,14 +567,16 @@ export default function HomePage() {
       <div className="max-w-6xl mx-auto w-full p-4 flex flex-col gap-4 flex-1">
 
         {/* KPIs */}
-        <div className="grid grid-cols-6 gap-2">
+        <div className="grid grid-cols-8 gap-2">
           {[
             { label: 'Total ODTs', value: totalOdts, color: 'text-slate-700', bg: 'bg-white', border: 'border-slate-200', icon: <Clock size={14} /> },
-            { label: 'c/Consumo', value: statsApi.conMateriales || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', icon: <CheckCircle size={14} /> },
-            { label: 's/Consumo', value: statsApi.sinMateriales || 0, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', icon: <Play size={14} /> },
+            { label: '🟢 Verde', value: statsApi.verde || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', icon: <CheckCircle size={14} /> },
+            { label: '🟡 Amarillo', value: statsApi.amarillo || 0, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', icon: <CheckCircle size={14} /> },
+            { label: '🔴 Rojo', value: statsApi.rojo || 0, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100', icon: <XCircle size={14} /> },
+            { label: '🟠 Naranja', value: statsApi.naranja || 0, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100', icon: <Clock size={14} /> },
             { label: 'Auditadas', value: statsDB.verificaciones, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100', icon: <CheckCircle size={14} /> },
-            { label: 'Registros Consumo', value: statsDB.consumos, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', icon: <XCircle size={14} /> },
-            { label: 'Movimientos', value: statsDB.movimientos, color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100', icon: <CheckCircle size={14} /> },
+            { label: 'c/Consumo', value: statsApi.conMateriales || 0, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', icon: <Play size={14} /> },
+            { label: 's/Consumo', value: statsApi.sinMateriales || 0, color: 'text-slate-500', bg: 'bg-slate-50', border: 'border-slate-100', icon: <Play size={14} /> },
           ].map(k => (
             <div key={k.label} className={`${k.bg} rounded-xl p-3 border ${k.border}`}>
               <div className={`flex items-center gap-1 ${k.color} opacity-60 mb-1`}>{k.icon}<span className="text-[10px] font-medium">{k.label}</span></div>
@@ -573,10 +596,37 @@ export default function HomePage() {
               className="w-full text-xs pl-8 pr-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-blue-400 bg-slate-50"
             />
           </div>
+          
+          {/* Filtro Cuadrilla */}
+          <select 
+            value={filtroCuadrilla} 
+            onChange={e => setFiltroCuadrilla(e.target.value)}
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-blue-400 bg-white"
+          >
+            <option value="">Todas las Cuadrillas</option>
+            <option value="GALLO">GALLO</option>
+            <option value="BARRAZA">BARRAZA</option>
+            <option value="MELGAR">MELGAR</option>
+            <option value="VEGA">VEGA</option>
+          </select>
+
+          {/* Filtro Estado PSM (R11, R20, etc) */}
+          <select 
+            value={filtroPSM} 
+            onChange={e => setFiltroPSM(e.target.value)}
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-blue-400 bg-white"
+          >
+            <option value="">Estado PSM (Todos)</option>
+            <option value="R11">R11 (Nueva Instalación)</option>
+            <option value="R20">R20 (Reparación)</option>
+            <option value="R30">R30 (Mantenimiento)</option>
+            <option value="R99">R99 (Otro)</option>
+          </select>
+
+          {/* Filtro Estado Auditoría (Conforme, Observación, etc) */}
           <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
             className="text-xs px-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-blue-400 bg-white">
-            <option value="">Todos los estados</option>
-            <option value="R11">R11 (Completadas)</option>
+            <option value="">Auditoría (Todos)</option>
             <option value="conforme">Conforme</option>
             <option value="observacion">Observación</option>
             <option value="no_conforme">No conforme</option>
@@ -784,6 +834,92 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* MODAL CLASIFICAR */}
+      {showClassifyModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-slate-800">Clasificación por Lotes</h2>
+              <button onClick={() => setShowClassifyModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <p className="text-sm text-slate-600 mb-4">
+              Clasificando <strong>{selectedOdts.size}</strong> ODTs seleccionadas
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Tipo de Inconsistencia
+                </label>
+                <select id="tipoInconsistencia" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 bg-white">
+                  <option value="Falta Material">Falta Material</option>
+                  <option value="Serie Errónea">Serie Errónea</option>
+                  <option value="Sospecha de Omisión">Sospecha de Omisión</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Observación (opcional)
+                </label>
+                <textarea 
+                  id="observacionClasificar"
+                  placeholder="Agregar observación..." 
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 h-24 resize-none"
+                />
+              </div>
+              
+              <button
+                onClick={async () => {
+                  const tipo = (document.getElementById('tipoInconsistencia') as HTMLSelectElement).value
+                  const obs = (document.getElementById('observacionClasificar') as HTMLTextAreaElement).value
+                  
+                  setClasificando(true)
+                  try {
+                    const res = await fetch('/api/classify-batch', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        odtCodes: Array.from(selectedOdts),
+                        tipoInconsistencia: tipo,
+                        observacion: obs,
+                        auditor: 'Auditor'
+                      })
+                    })
+                    const data = await res.json()
+                    if (data.ok) {
+                      alert(data.message)
+                      setShowClassifyModal(false)
+                      setSelectedOdts(new Set())
+                      loadOdtsOptimized(true)
+                      loadStatsDB()
+                    } else {
+                      alert('Error: ' + data.error)
+                    }
+                  } catch (err) {
+                    alert('Error al clasificar')
+                  } finally {
+                    setClasificando(false)
+                  }
+                }}
+                disabled={clasificando}
+                className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+              >
+                {clasificando ? 'Clasificando...' : 'Confirmar Clasificación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
+
+
+
+
