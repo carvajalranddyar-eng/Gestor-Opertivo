@@ -19,27 +19,29 @@ export async function GET(req: NextRequest) {
     
     console.log('[DEBUG] Params parsed. filtro:', filtro, 'cuadrilla:', filtroCuadrilla, 'psm:', filtroPSM)
 
-    // 1. Cargar todos los consumos
+    // 1. Cargar todos los consumos con productos completos
     const batchSize = 10000
     const allConsumosData = new Map<string, any>()
     let offsetConsumos = 0
-    let allSeriesUsed = new Map<string, string[]>()
     
     while (true) {
       const { data: seriesBatch } = await supabase
         .from('consumos')
-        .select('odt_codigo, series')
+        .select('odt_codigo, producto_codigo, series')
         .not('series', 'is', null)
         .range(offsetConsumos, offsetConsumos + batchSize - 1)
       
       if (!seriesBatch || seriesBatch.length === 0) break
       
       seriesBatch.forEach((s: any) => {
-        if (s.series && s.odt_codigo) {
-          if (!allSeriesUsed.has(s.series)) {
-            allSeriesUsed.set(s.series, [])
+        if (s.odt_codigo) {
+          if (!allConsumosData.has(s.odt_codigo)) {
+            allConsumosData.set(s.odt_codigo, [])
           }
-          allSeriesUsed.get(s.series)?.push(s.odt_codigo)
+          allConsumosData.get(s.odt_codigo)?.push({
+            producto_codigo: s.producto_codigo,
+            series: s.series
+          })
         }
       })
       
@@ -47,30 +49,39 @@ export async function GET(req: NextRequest) {
       offsetConsumos += batchSize
     }
 
-    // 2. Obtener lista de ODTs únicas
-    const matchingCodes = Array.from(allSeriesUsed.values()).flat()
-    const uniqueMatchingCodes = [...new Set(matchingCodes)]
+    // 2. Obtener lista de ODTs únicas con consumos
+    const uniqueMatchingCodes = [...allConsumosData.keys()]
     console.log('[DEBUG] Unique ODTs with consumos:', uniqueMatchingCodes.length)
 
-    // 3. Obtener medidores del PSM
+    // 3. Obtener medidores del PSM para las ODTs
     const { data: odtsConSerie } = await supabase
       .from('odts')
       .select('codigo_barras, medidor_serie')
-      .in('codigo_barras', uniqueMatchingCodes)
+      .in('codigo_barras', uniqueMatchingCodes.length > 0 ? uniqueMatchingCodes : [''])
     
     const odtSerieMap = new Map<string, string>()
     odtsConSerie?.forEach(o => {
       if (o.medidor_serie) odtSerieMap.set(o.codigo_barras, o.medidor_serie)
     })
 
-    // 4. Calcular estadísticas
-    const { count: totalOdts } = await supabase
-      .from('odts')
-      .select('id', { count: 'exact', head: true })
+    // 4. Detectar series duplicadas en consumos
+    const seriesDuplicadasMap = new Map<string, string[]>()
+    allConsumosData.forEach((consumos, odtCodigo) => {
+      consumos.forEach((c: any) => {
+        if (c.series) {
+          if (!seriesDuplicadasMap.has(c.series)) {
+            seriesDuplicadasMap.set(c.series, [])
+          }
+          seriesDuplicadasMap.get(c.series)?.push(odtCodigo)
+        }
+      })
+    })
 
+    // 5. Calcular estadísticas y estado semáforo para cada ODT
+    const analisisAllMap = new Map<string, any>()
     const stats = {
       conMateriales: uniqueMatchingCodes.length,
-      sinMateriales: (totalOdts || 0) - uniqueMatchingCodes.length,
+      sinMateriales: 0,
       rojo: 0,
       amarillo: 0,
       verde: 0,
@@ -78,39 +89,83 @@ export async function GET(req: NextRequest) {
       naranja: 0
     }
 
-    // Simplified analysis for stats
-    const analisisAllMap = new Map<string, any>()
+    // Códigos de productosmandatorios
+    const CODIGO_CAJA = '070008001'
+    const CODIGO_PRECINTO = '072002015'
+    const CODIGO_MEDIDOR = '072003015'
+
     uniqueMatchingCodes.forEach(codigo => {
-      const series = allSeriesUsed.get(codigo) || []
-      const uniqueSeries = [...new Set(series)]
+      const consumos = allConsumosData.get(codigo) || []
       const psSerie = odtSerieMap.get(codigo)
       
+      // Contar productos
+      const productosUnicos = [...new Set(consumos.map((c: any) => c.producto_codigo))]
+      const tieneCaja = productosUnicos.includes(CODIGO_CAJA)
+      const tienePrecinto = productosUnicos.includes(CODIGO_PRECINTO)
+      const tieneMedidor = productosUnicos.includes(CODIGO_MEDIDOR)
+      
+      // Verificar si hay series duplicadas para esta ODT
+      let serieDuplicada = false
+      consumos.forEach((c: any) => {
+        if (c.series) {
+          const duplicados = seriesDuplicadasMap.get(c.series) || []
+          if (duplicados.length > 1) serieDuplicada = true
+        }
+      })
+
+      // Determinar estado del semáforo
       let estadoSemaforo = 'sin_datos'
-      if (uniqueSeries.length > 0) {
+      let observaciones = ''
+
+      if (serieDuplicada) {
+        estadoSemaforo = 'purpura'
+        stats.purpura++
+      } else if (consumos.length > 0) {
         if (psSerie) {
-          estadoSemaforo = 'verde'
+          // Hay medidor en PSM - verificar si tiene todos los básicos
+          if (tieneCaja && tienePrecinto && tieneMedidor) {
+            estadoSemaforo = 'verde'
+            stats.verde++
+          } else {
+            // Tiene medidor pero faltan algunos materiales básicos
+            estadoSemaforo = 'amarillo'
+            stats.amarillo++
+            if (!tieneCaja) observaciones += 'Falta CAJA. '
+            if (!tienePrecinto) observaciones += 'Falta PRECINTO. '
+            if (!tieneMedidor) observaciones += 'Falta MEDIDOR. '
+          }
         } else {
+          // No hay medidor en PSM - está Pendiente de Datos
           estadoSemaforo = 'naranja'
+          stats.naranja++
         }
       }
-      
+
       analisisAllMap.set(codigo, {
         estadoSemaforo,
         serieEfectiva: psSerie,
-        productosCount: uniqueSeries.length,
-        seriesConsumo: uniqueSeries
+        productosCount: consumos.length,
+        seriesConsumo: consumos.map((c: any) => c.series).filter(Boolean),
+        countByCategory: {
+          caja: tieneCaja ? 1 : 0,
+          precinto: tienePrecinto ? 1 : 0,
+          medidor: tieneMedidor ? 1 : 0
+        },
+        observaciones: observaciones.trim() || null,
+        serieDuplicada
       })
     })
 
-    analisisAllMap.forEach(a => {
-      if (a.estadoSemaforo === 'rojo') stats.rojo++
-      else if (a.estadoSemaforo === 'amarillo') stats.amarillo++
-      else if (a.estadoSemaforo === 'verde') stats.verde++
-      else if (a.estadoSemaforo === 'purpura') stats.purpura++
-      else if (a.estadoSemaforo === 'naranja') stats.naranja++
-    })
+    // Obtener total de ODTs en base de datos
+    const { count: totalOdts } = await supabase
+      .from('odts')
+      .select('id', { count: 'exact', head: true })
 
-    // 5. Obtener ODTs con filtros
+    stats.sinMateriales = (totalOdts || 0) - uniqueMatchingCodes.length
+
+    console.log('[DEBUG] Stats calculated:', stats)
+
+    // 6. Obtener ODTs con filtros de semáforo
     if ((filtro === 'con_materiales' || filtro === 'rojo' || filtro === 'amarillo' || filtro === 'verde' || filtro === 'purpura' || filtro === 'duplicada' || filtro === 'naranja') && uniqueMatchingCodes.length > 0) {
       const allMatchingOdts: any[] = []
       for (let i = 0; i < uniqueMatchingCodes.length; i += 1000) {
@@ -255,7 +310,7 @@ export async function GET(req: NextRequest) {
       materialesCount: analisisAllMap.get(o.codigo_barras)?.productosCount || 0
     }))
 
-    // Calcular stats reales de la base de datos
+    // Calcular stats reales
     let totalStats = { ...stats }
     if (filtro === 'sin_materiales') {
       totalStats.sinMateriales = total
