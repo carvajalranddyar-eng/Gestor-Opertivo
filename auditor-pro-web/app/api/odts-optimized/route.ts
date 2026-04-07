@@ -183,6 +183,21 @@ export async function GET(req: NextRequest) {
         filteredOdts = allMatchingOdts.filter((o: any) => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'naranja')
       }
       
+      // Apply Cuadrilla Filter after semaforo filter
+      if (filtroCuadrilla) {
+        const searchTerm = filtroCuadrilla.toLowerCase().trim()
+        filteredOdts = filteredOdts.filter((o: any) => {
+          if (!o.cuadrilla_nombre) return false
+          const dbVal = o.cuadrilla_nombre.toString().toLowerCase().trim()
+          return dbVal.includes(searchTerm)
+        })
+      }
+      
+      // Apply PSM Status Filter after semaforo filter
+      if (filtroPSM) {
+        filteredOdts = filteredOdts.filter((o: any) => o.estado === filtroPSM)
+      }
+      
       filteredOdts.sort((a: any, b: any) => b.id - a.id)
       
       const paginated = filteredOdts.slice(offset, offset + limit)
