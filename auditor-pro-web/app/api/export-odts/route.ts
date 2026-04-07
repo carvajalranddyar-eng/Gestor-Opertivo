@@ -12,7 +12,6 @@ export async function GET(req: NextRequest) {
   const filtroPSM = searchParams.get('psm_estado') || ''
 
   try {
-    // 1. Cargar todos los consumos
     const allConsumosData = new Map<string, {productos: string[], cantidades: Map<string, number>, series: string[], descripciones: Map<string, string>}>()
     let offsetConsumos = 0
     const batchSize = 1000
@@ -50,7 +49,6 @@ export async function GET(req: NextRequest) {
       offsetConsumos += batchSize
     }
 
-    // 2. Cargar series usadas para detectar duplicados
     const allSeriesUsed = new Map<string, string[]>()
     offsetConsumos = 0
     while (true) {
@@ -75,7 +73,6 @@ export async function GET(req: NextRequest) {
       offsetConsumos += batchSize
     }
 
-    // 3. Analizar cada ODT
     const analisisAllMap = new Map<string, any>()
     const matchingCodes = [...allConsumosData.keys()]
     
@@ -119,7 +116,6 @@ export async function GET(req: NextRequest) {
       })
     })
 
-    // 4. Obtener todas las ODTs con consumos
     let allMatchingOdts: any[] = []
     for (let i = 0; i < matchingCodes.length; i += 1000) {
       const chunk = matchingCodes.slice(i, i + 1000)
@@ -131,7 +127,6 @@ export async function GET(req: NextRequest) {
       if (chunkOdts) allMatchingOdts.push(...chunkOdts)
     }
 
-    // 5. Aplicar filtros
     let filteredOdts = allMatchingOdts
     
     if (filtro === 'rojo') {
@@ -158,37 +153,78 @@ export async function GET(req: NextRequest) {
       filteredOdts = filteredOdts.filter((o: any) => o.estado === filtroPSM)
     }
 
-    // 6. Construir datos para Excel
-    const excelData = filteredOdts.map((o: any) => {
+    // UNA FILA POR CADA MATERIAL - para表格 dinámica
+    const rows: any[] = []
+    
+    filteredOdts.forEach((o: any) => {
       const analisis = analisisAllMap.get(o.codigo_barras)
       const consumosData = allConsumosData.get(o.codigo_barras)
       
-      const materiales: string[] = []
+      const materialesList: {codigo: string, descripcion: string, cantidad: number}[] = []
       consumosData?.descripciones.forEach((desc, codigo) => {
         const cantidad = consumosData.cantidades.get(codigo) || 0
-        materiales.push(`${codigo} - ${desc} (x${cantidad})`)
+        materialesList.push({ codigo, descripcion: desc, cantidad })
       })
 
-      return {
-        ODT: o.codigo_barras,
-        Numero: o.numero,
-        Cliente: o.cliente,
-        Direccion: o.direccion,
-        Cuadrilla: o.cuadrilla_nombre,
-        Estado_PSM: o.estado,
-        Fecha_Ingreso: o.fecha_ingreso,
-        Estado_Semaforo: analisis?.estadoSemaforo || 'sin_datos',
-        Motivo: analisis?.motivo || '',
-        Medidor_Serie: analisis?.serieEfectiva || o.medidor_serie || '',
-        Materiales: materiales.join('; '),
-        Tiene_Foto: o.foto ? 'SI' : 'NO'
+      if (materialesList.length === 0) {
+        rows.push({
+          ODT: o.codigo_barras,
+          Numero: o.numero,
+          Cliente: o.cliente,
+          Direccion: o.direccion,
+          Cuadrilla: o.cuadrilla_nombre,
+          Estado_PSM: o.estado,
+          Fecha_Ingreso: o.fecha_ingreso,
+          Estado_Semaforo: analisis?.estadoSemaforo || 'sin_datos',
+          Motivo: analisis?.motivo || '',
+          Medidor_Serie: analisis?.serieEfectiva || o.medidor_serie || '',
+          Material_Codigo: '',
+          Material_Descripcion: '',
+          Material_Cantidad: 0,
+          Tiene_Foto: o.foto ? 'SI' : 'NO'
+        })
+      } else {
+        materialesList.forEach((mat, idx) => {
+          rows.push({
+            ODT: idx === 0 ? o.codigo_barras : '',
+            Numero: idx === 0 ? o.numero : '',
+            Cliente: idx === 0 ? o.cliente : '',
+            Direccion: idx === 0 ? o.direccion : '',
+            Cuadrilla: idx === 0 ? o.cuadrilla_nombre : '',
+            Estado_PSM: idx === 0 ? o.estado : '',
+            Fecha_Ingreso: idx === 0 ? o.fecha_ingreso : '',
+            Estado_Semaforo: idx === 0 ? (analisis?.estadoSemaforo || 'sin_datos') : '',
+            Motivo: idx === 0 ? (analisis?.motivo || '') : '',
+            Medidor_Serie: idx === 0 ? (analisis?.serieEfectiva || o.medidor_serie || '') : '',
+            Material_Codigo: mat.codigo,
+            Material_Descripcion: mat.descripcion,
+            Material_Cantidad: mat.cantidad,
+            Tiene_Foto: idx === 0 ? (o.foto ? 'SI' : 'NO') : ''
+          })
+        })
       }
     })
 
-    // 7. Generar Excel
-    const worksheet = XLSX.utils.json_to_sheet(excelData)
+    const worksheet = XLSX.utils.json_to_sheet(rows)
     const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'ODTs')
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'ODTs_Materiales')
+    
+    worksheet['!cols'] = [
+      { wch: 15 },
+      { wch: 12 },
+      { wch: 25 },
+      { wch: 35 },
+      { wch: 20 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 30 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 50 },
+      { wch: 10 },
+      { wch: 10 },
+    ]
     
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
     
