@@ -64,9 +64,13 @@ export async function GET(req: NextRequest) {
     })
 
     // 4. Calcular estadísticas
+    const { count: totalOdts } = await supabase
+      .from('odts')
+      .select('id', { count: 'exact', head: true })
+
     const stats = {
       conMateriales: uniqueMatchingCodes.length,
-      sinMateriales: 0,
+      sinMateriales: (totalOdts || 0) - uniqueMatchingCodes.length,
       rojo: 0,
       amarillo: 0,
       verde: 0,
@@ -251,6 +255,13 @@ export async function GET(req: NextRequest) {
       materialesCount: analisisAllMap.get(o.codigo_barras)?.productosCount || 0
     }))
 
+    // Calcular stats reales de la base de datos
+    let totalStats = { ...stats }
+    if (filtro === 'sin_materiales') {
+      totalStats.sinMateriales = total
+      totalStats.conMateriales = 0
+    }
+
     return NextResponse.json({
       ok: true,
       odts,
@@ -258,7 +269,7 @@ export async function GET(req: NextRequest) {
       page,
       limit,
       tieneMas: odts.length === limit,
-      stats,
+      stats: totalStats,
       debug: {
         filtroRecibido: filtro,
         cuadrillaRecibida: filtroCuadrilla,
