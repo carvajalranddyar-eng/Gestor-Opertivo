@@ -1,187 +1,167 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { validarODT, contarMateriales, type ValidationResult } from '@/lib/validator'
 
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  console.log('[DEBUG] ========== NEW REQUEST ==========')
-  console.log('[DEBUG] URL:', req.url)
-  
   try {
     const searchParams = req.nextUrl.searchParams
-    const filtroCuadrilla = searchParams.get('cuadrilla') || ''
     const filtro = searchParams.get('filtro') || ''
-    const filtroPSM = searchParams.get('psm_estado') || ''
     const search = searchParams.get('search') || ''
     const page = parseInt(searchParams.get('page') || '0')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = page * limit
-    
-    console.log('[DEBUG] Params parsed. filtro:', filtro, 'cuadrilla:', filtroCuadrilla, 'psm:', filtroPSM)
 
-    // 1. Cargar TODOS los consumos (sin filtro de series)
-    const batchSize = 10000
-    const allConsumosData = new Map<string, any>()
+    // NEW FILTERS
+    const filtroCuadrilla = searchParams.get('cuadrilla') || ''
+    const filtroPSM = searchParams.get('psm_estado') || ''
+    const filtroEstadoAuditoria = searchParams.get('estado') || '' // This was already there (conforme, observacion, etc)
+
+    // 1. Cargar todos los consumos
+    const allConsumosData = new Map<string, {productos: string[], cantidades: Map<string, number>, series: string[]}>()
     let offsetConsumos = 0
+    const batchSize = 1000
     
     while (true) {
-      const { data: allBatch } = await supabase
+      const { data: consumoBatch } = await supabase
         .from('consumos')
-        .select('odt_codigo, producto_codigo, series')
+        .select('odt_codigo, producto_codigo, cantidad, series')
         .range(offsetConsumos, offsetConsumos + batchSize - 1)
       
-      if (!allBatch || allBatch.length === 0) break
+      if (!consumoBatch || consumoBatch.length === 0) break
       
-      allBatch.forEach((s: any) => {
-        if (s.odt_codigo) {
-          if (!allConsumosData.has(s.odt_codigo)) {
-            allConsumosData.set(s.odt_codigo, [])
+      consumoBatch.forEach((c: any) => {
+        if (c.odt_codigo) {
+          if (!allConsumosData.has(c.odt_codigo)) {
+            allConsumosData.set(c.odt_codigo, { productos: [], cantidades: new Map(), series: [] })
           }
-          allConsumosData.get(s.odt_codigo)?.push({
-            producto_codigo: s.producto_codigo,
-            series: s.series
-          })
+          const data = allConsumosData.get(c.odt_codigo)!
+          data.productos.push(c.producto_codigo)
+          
+          const currentQty = data.cantidades.get(c.producto_codigo) || 0
+          data.cantidades.set(c.producto_codigo, currentQty + (c.cantidad || 1))
+          
+          if (c.series && c.series !== 'N/A') {
+            data.series.push(c.series)
+          }
         }
       })
       
-      if (allBatch.length < batchSize) break
+      if (consumoBatch.length < batchSize) break
       offsetConsumos += batchSize
     }
 
-    // 2. Obtener lista de ODTs únicas con consumos
-    const uniqueMatchingCodes = [...allConsumosData.keys()]
-    console.log('[DEBUG] Unique ODTs with consumos:', uniqueMatchingCodes.length)
+    // 2. Cargar series usadas para detectar duplicados
+    const allSeriesUsed = new Map<string, string[]>()
+    offsetConsumos = 0
+    while (true) {
+      const { data: seriesBatch } = await supabase
+        .from('consumos')
+        .select('odt_codigo, series')
+        .not('series', 'is', null)
+        .range(offsetConsumos, offsetConsumos + batchSize - 1)
+      
+      if (!seriesBatch || seriesBatch.length === 0) break
+      
+      seriesBatch.forEach((s: any) => {
+        if (s.series && s.odt_codigo) {
+          if (!allSeriesUsed.has(s.series)) {
+            allSeriesUsed.set(s.series, [])
+          }
+          allSeriesUsed.get(s.series)?.push(s.odt_codigo)
+        }
+      })
+      
+      if (seriesBatch.length < batchSize) break
+      offsetConsumos += batchSize
+    }
 
-    // 3. Obtener medidores del PSM para las ODTs
+    // 3. Analizar cada ODT usando el validador modular
+    const analisisAllMap = new Map<string, any>()
+    const matchingCodes = Array.from(allConsumosData.keys())
+    
+    // Obtener ODTs con medidor_serie del PSM
     const { data: odtsConSerie } = await supabase
       .from('odts')
       .select('codigo_barras, medidor_serie')
-      .in('codigo_barras', uniqueMatchingCodes.length > 0 ? uniqueMatchingCodes : [''])
+      .in('codigo_barras', matchingCodes)
     
-    const odtSerieMap = new Map<string, string>()
-    odtsConSerie?.forEach(o => {
-      if (o.medidor_serie) odtSerieMap.set(o.codigo_barras, o.medidor_serie)
-    })
+    const seriePSMMap = new Map<string, string | null>()
+    odtsConSerie?.forEach(o => seriePSMMap.set(o.codigo_barras, o.medidor_serie))
 
-    // 4. Detectar series duplicadas en consumos
-    const seriesDuplicadasMap = new Map<string, string[]>()
-    allConsumosData.forEach((consumos, odtCodigo) => {
-      consumos.forEach((c: any) => {
-        if (c.series && c.series !== 'N/A') {
-          if (!seriesDuplicadasMap.has(c.series)) {
-            seriesDuplicadasMap.set(c.series, [])
-          }
-          seriesDuplicadasMap.get(c.series)?.push(odtCodigo)
-        }
+    const { data: odtsConEstado } = await supabase
+      .from('odts')
+      .select('codigo_barras, estado')
+      .in('codigo_barras', matchingCodes)
+    
+    const estadoODTMap = new Map<string, string | null>()
+    odtsConEstado?.forEach(o => estadoODTMap.set(o.codigo_barras, o.estado))
+
+    allConsumosData.forEach((data, odtCodigo) => {
+      const productos = data.productos
+      const countByCategory = contarMateriales(productos)
+      const seriesPSM = seriePSMMap.get(odtCodigo) || null
+      
+      const estadoODT = estadoODTMap.get(odtCodigo) || null
+      
+      const result = validarODT(
+        countByCategory,
+        seriesPSM,
+        data.series,
+        allSeriesUsed,
+        estadoODT
+      )
+      
+      analisisAllMap.set(odtCodigo, {
+        estadoSemaforo: result.estado,
+        motivo: result.motivo,
+        tipo: result.tipo,
+        serieEfectiva: result.serieEfectiva,
+        requiereVerificacion: result.requiereVerificacion,
+        countByCategory,
+        productosCount: productos.length,
+        seriesConsumo: data.series
       })
     })
 
-    // 5. Calcular estadísticas y estado semáforo para cada ODT
-    const analisisAllMap = new Map<string, any>()
+    // 4. Calcular estadísticas
     const stats = {
-      conMateriales: uniqueMatchingCodes.length,
-      sinMateriales: 0,
+      conMateriales: matchingCodes.length,
+      sinMateriales: 47528 - matchingCodes.length,
       rojo: 0,
       amarillo: 0,
       verde: 0,
       purpura: 0,
       naranja: 0
     }
-
-    // Códigos de productos mandatorios
-    const CODIGO_CAJA = '070008001'
-    const CODIGO_PRECINTO = '072002015'
-    const CODIGO_MEDIDOR = '072003015'
-
-    uniqueMatchingCodes.forEach(codigo => {
-      const consumos = allConsumosData.get(codigo) || []
-      const psSerie = odtSerieMap.get(codigo)
-      
-      // Contar productos únicos (incluyendo los que NO tienen serie)
-      const productosUnicos = [...new Set(consumos.map((c: any) => c.producto_codigo))]
-      const tieneCaja = productosUnicos.includes(CODIGO_CAJA)
-      const tienePrecinto = productosUnicos.includes(CODIGO_PRECINTO)
-      const tieneMedidor = productosUnicos.includes(CODIGO_MEDIDOR)
-      
-      // Verificar si hay series duplicadas para esta ODT
-      let serieDuplicada = false
-      let seriesDuplicadasCount = 0
-      consumos.forEach((c: any) => {
-        if (c.series && c.series !== 'N/A') {
-          const duplicados = seriesDuplicadasMap.get(c.series) || []
-          if (duplicados.length > 1) {
-            serieDuplicada = true
-            seriesDuplicadasCount++
-          }
-        }
-      })
-
-      // Determinar estado del semáforo
-      let estadoSemaforo = 'sin_datos'
-      let observaciones = ''
-
-      if (serieDuplicada) {
-        estadoSemaforo = 'purpura'
-        stats.purpura++
-      } else if (consumos.length > 0) {
-        // Tiene consumos - verificar medidor
-        if (psSerie) {
-          // Hay medidor en PSM - verificar si tiene todos los básicos
-          if (tieneCaja && tienePrecinto && tieneMedidor) {
-            estadoSemaforo = 'verde'
-            stats.verde++
-          } else {
-            // Tiene medidor pero faltan algunos materiales básicos
-            estadoSemaforo = 'amarillo'
-            stats.amarillo++
-            if (!tieneCaja) observaciones += 'Falta CAJA. '
-            if (!tienePrecinto) observaciones += 'Falta PRECINTO. '
-            if (!tieneMedidor) observaciones += 'Falta MEDIDOR. '
-          }
-        } else {
-          // No hay medidor en PSM - está Pendiente de Datos
-          estadoSemaforo = 'naranja'
-          stats.naranja++
-        }
-      } else {
-        // Sin consumos - rojo
-        estadoSemaforo = 'rojo'
-        stats.rojo++
-      }
-
-      analisisAllMap.set(codigo, {
-        estadoSemaforo,
-        serieEfectiva: psSerie,
-        productosCount: consumos.length,
-        seriesConsumo: consumos.map((c: any) => c.series).filter(Boolean),
-        countByCategory: {
-          caja: tieneCaja ? 1 : 0,
-          precinto: tienePrecinto ? 1 : 0,
-          medidor: tieneMedidor ? 1 : 0
-        },
-        observaciones: observaciones.trim() || null,
-        serieDuplicada
-      })
+    
+    analisisAllMap.forEach(a => {
+      if (a.estadoSemaforo === 'rojo') stats.rojo++
+      else if (a.estadoSemaforo === 'amarillo') stats.amarillo++
+      else if (a.estadoSemaforo === 'verde') stats.verde++
+      else if (a.estadoSemaforo === 'purpura') stats.purpura++
+      else if (a.estadoSemaforo === 'naranja') stats.naranja++
     })
 
-    // Obtener total de ODTs en base de datos
-    const { count: totalOdts } = await supabase
+    // 5. Obtener ODTs con filtros
+    let query = supabase
       .from('odts')
-      .select('id', { count: 'exact', head: true })
-
-    stats.sinMateriales = (totalOdts || 0) - uniqueMatchingCodes.length
-
-    console.log('[DEBUG] Stats calculated:', JSON.stringify(stats))
-    console.log('[DEBUG] Unique matching codes:', uniqueMatchingCodes.length)
-    console.log('[DEBUG] Sample codes:', uniqueMatchingCodes.slice(0, 5))
-    console.log('[DEBUG] ODTs with medidor_serie:', odtSerieMap.size)
-
-    // 6. Obtener ODTs con filtros de semáforo
-    if ((filtro === 'con_materiales' || filtro === 'rojo' || filtro === 'amarillo' || filtro === 'verde' || filtro === 'purpura' || filtro === 'duplicada' || filtro === 'naranja') && uniqueMatchingCodes.length > 0) {
+      .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso', { count: 'exact' })
+    
+    // Apply filters
+    if (filtroCuadrilla) {
+      query = query.ilike('cuadrilla_nombre', `%${filtroCuadrilla}%`)
+    }
+    if (filtroPSM) {
+      query = query.eq('estado', filtroPSM)
+    }
+    // filtroEstadoAuditoria is handled later with verification data
+    
+    if ((filtro === 'con_materiales' || filtro === 'rojo' || filtro === 'amarillo' || filtro === 'verde' || filtro === 'purpura' || filtro === 'duplicada' || filtro === 'naranja') && matchingCodes.length > 0) {
       const allMatchingOdts: any[] = []
-      for (let i = 0; i < uniqueMatchingCodes.length; i += 1000) {
-        const chunk = uniqueMatchingCodes.slice(i, i + 1000)
-        
+      for (let i = 0; i < matchingCodes.length; i += 1000) {
+        const chunk = matchingCodes.slice(i, i + 1000)
         const { data: chunkOdts } = await supabase
           .from('odts')
           .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso')
@@ -190,11 +170,7 @@ export async function GET(req: NextRequest) {
         if (chunkOdts) allMatchingOdts.push(...chunkOdts)
       }
       
-      console.log('[DEBUG] After getting all ODTs, applying filters. Total:', allMatchingOdts.length)
-      
       let filteredOdts = allMatchingOdts
-      
-      // Apply semaforo filter
       if (filtro === 'rojo') {
         filteredOdts = allMatchingOdts.filter((o: any) => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'rojo')
       } else if (filtro === 'amarillo') {
@@ -206,27 +182,8 @@ export async function GET(req: NextRequest) {
       } else if (filtro === 'naranja') {
         filteredOdts = allMatchingOdts.filter((o: any) => analisisAllMap.get(o.codigo_barras)?.estadoSemaforo === 'naranja')
       }
-
-      console.log('[DEBUG] After semaforo filter. Total:', filteredOdts.length)
-
-      // Apply PSM Status Filter (Estado)
-      if (filtroPSM) {
-        filteredOdts = filteredOdts.filter((o: any) => o.estado === filtroPSM)
-      }
       
-      // Apply Cuadrilla Filter
-      if (filtroCuadrilla) {
-        const searchTerm = filtroCuadrilla.toLowerCase().trim()
-        console.log('[DEBUG] Applying cuadrilla filter:', searchTerm, 'Total before:', filteredOdts.length)
-        
-        filteredOdts = filteredOdts.filter((o: any) => {
-          if (!o.cuadrilla_nombre) return false
-          const dbVal = o.cuadrilla_nombre.toString().toLowerCase().trim()
-          return dbVal.includes(searchTerm)
-        })
-        
-        console.log('[DEBUG] After cuadrilla filter:', filteredOdts.length)
-      }
+      filteredOdts.sort((a: any, b: any) => b.id - a.id)
       
       const paginated = filteredOdts.slice(offset, offset + limit)
       
@@ -263,45 +220,24 @@ export async function GET(req: NextRequest) {
         page,
         limit,
         tieneMas: offset + limit < filteredOdts.length,
-        stats: filteredStats,
-        debug: {
-          filtroRecibido: filtro,
-          cuadrillaRecibida: filtroCuadrilla,
-          psmRecibido: filtroPSM,
-          totalBeforeCuadrilla: filteredOdts.length
-        }
+        stats: filteredStats
       })
     }
     
-    // Sin filtro de semáforo - ruta simple
-    let query = supabase
-      .from('odts')
-      .select('codigo_barras, numero, cliente, direccion, cuadrilla_nombre, estado, medidor_serie, foto, fecha_ingreso', { count: 'exact' })
+    // Sin filtro o sin_materiales
+    query = query.range(offset, offset + limit - 1)
     
     if (search) {
       query = query.or(`codigo_barras.ilike.%${search}%,numero.ilike.%${search}%`)
     }
     
-    // Apply Cuadrilla Filter in SQL
-    if (filtroCuadrilla) {
-      const searchTerm = filtroCuadrilla.toLowerCase().trim()
-      query = query.ilike('cuadrilla_nombre', `%${searchTerm}%`)
-    }
-    
-    // Apply PSM Status Filter
-    if (filtroPSM) {
-      query = query.eq('estado', filtroPSM)
-    }
-    
-    query = query.range(offset, offset + limit - 1).order('id', { ascending: false })
-    
-    const result = await query
+    const result = await query.order('id', { ascending: false })
     let odtsData = result.data || []
     const total = result.count || 0
 
     let odtsFiltrados = odtsData
     if (filtro === 'sin_materiales') {
-      odtsFiltrados = odtsData.filter((o: any) => !uniqueMatchingCodes.includes(o.codigo_barras))
+      odtsFiltrados = odtsData.filter((o: any) => !matchingCodes.includes(o.codigo_barras))
     }
 
     const odts = odtsFiltrados.map((o: any) => ({
@@ -314,19 +250,12 @@ export async function GET(req: NextRequest) {
       fecha: o.fecha_ingreso,
       medidor: o.medidor_serie,
       tieneFoto: !!o.foto,
-      tieneConsumos: uniqueMatchingCodes.includes(o.codigo_barras),
+      tieneConsumos: matchingCodes.includes(o.codigo_barras),
       estadoSemaforo: analisisAllMap.get(o.codigo_barras)?.estadoSemaforo || 'sin_datos',
       analisis: analisisAllMap.get(o.codigo_barras),
       estadoAuditoria: 'pendiente',
       materialesCount: analisisAllMap.get(o.codigo_barras)?.productosCount || 0
     }))
-
-    // Calcular stats reales
-    let totalStats = { ...stats }
-    if (filtro === 'sin_materiales') {
-      totalStats.sinMateriales = total
-      totalStats.conMateriales = 0
-    }
 
     return NextResponse.json({
       ok: true,
@@ -335,16 +264,10 @@ export async function GET(req: NextRequest) {
       page,
       limit,
       tieneMas: odts.length === limit,
-      stats: totalStats,
-      debug: {
-        filtroRecibido: filtro,
-        cuadrillaRecibida: filtroCuadrilla,
-        psmRecibido: filtroPSM
-      }
+      stats
     })
 
   } catch (error: any) {
-    console.error('[DEBUG] Error:', error)
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 }
@@ -353,7 +276,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    if (body.action === 'getCuadrillas') {
+    if (body.getCuadrillas) {
       const { data } = await supabase
         .from('odts')
         .select('cuadrilla_nombre')
