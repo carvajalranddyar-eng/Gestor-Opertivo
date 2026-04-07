@@ -262,6 +262,31 @@ export default function HomePage() {
   const [filtroCuadrilla, setFiltroCuadrilla] = useState('')
   const [filtroPSM, setFiltroPSM] = useState('') // Estado PSM (R11, R20, etc)
 
+  // Live refresh state
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (!autoRefresh) return
+    
+    const interval = setInterval(() => {
+      loadOdtsOptimized(true)
+      setLastUpdate(new Date())
+    }, 30000) // 30 seconds
+    
+    return () => clearInterval(interval)
+  }, [autoRefresh, filtroMateriales, filtroEstado, filtroCuadrilla, filtroPSM, busquedaLocal])
+
+  // Manual refresh handler
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await loadOdtsOptimized(true)
+    setLastUpdate(new Date())
+    setIsRefreshing(false)
+  }
+
   // Load ODTs with pagination
   const loadOdtsOptimized = async (resetPage = false) => {
     const currentPage = resetPage ? 0 : page
@@ -327,7 +352,7 @@ export default function HomePage() {
         const res = await fetch('/api/odts-optimized', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ getCuadrillas: true })
+          body: JSON.stringify({ action: 'getCuadrillas' })
         })
         const data = await res.json()
         if (data.ok && data.cuadrillas) {
@@ -520,13 +545,27 @@ export default function HomePage() {
             </div>
           </div>
           
+          {/* Dashboard KPIs en tiempo real */}
+          <div className="flex items-center gap-2 mr-4">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-slate-100">
+              <span className="text-slate-500 font-medium">Semáforo:</span>
+              <span className="text-emerald-600 font-bold">{statsApi.verde}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-amber-600 font-bold">{statsApi.amarillo}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-orange-600 font-bold">{statsApi.naranja}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-rose-600 font-bold">{statsApi.rojo}</span>
+            </div>
+          </div>
+          
           {/* Estado del Proxy */}
           <div className="flex items-center gap-2 mr-4">
             <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
               psmConnected 
                 ? 'bg-emerald-100 text-emerald-700' 
                 : proxyStatus?.connected 
-                  ? 'bg-amber-100 text-amber-700'
+                  ? 'bg-amber-100 text-amber-700' 
                   : 'bg-slate-100 text-slate-500'
             }`}>
               {psmConnected ? <Wifi size={12} /> : proxyStatus?.connected ? <Wifi size={12} /> : <WifiOff size={12} />}
@@ -563,11 +602,28 @@ export default function HomePage() {
               <TrendingDown size={12} />
               Balances
             </Link>
-            <button onClick={() => loadOdtsOptimized(true)} disabled={loadingOptimized}
+            <button onClick={() => loadOdtsOptimized(true)} disabled={loadingOptimized || isRefreshing}
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-              <RefreshCw size={12} className={loadingOptimized ? 'animate-spin' : ''} />
-              {loadingOptimized ? 'Cargando...' : 'Actualizar'}
+              <RefreshCw size={12} className={(loadingOptimized || isRefreshing) ? 'animate-spin' : ''} />
+              {(loadingOptimized || isRefreshing) ? 'Cargando...' : 'Actualizar'}
             </button>
+            
+            {/* Auto-refresh toggle */}
+            <button 
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${autoRefresh ? 'border-green-300 bg-green-50 text-green-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              title={autoRefresh ? 'Auto-actualización cada 30s' : 'Activar auto-actualización'}
+            >
+              <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`} />
+              {autoRefresh ? 'En Vivo' : 'Auto'}
+            </button>
+            
+            {/* Last update indicator */}
+            {lastUpdate && (
+              <span className="text-[10px] text-slate-400">
+                {lastUpdate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
             {selectedOdts.size > 0 && (
               <div className="flex items-center gap-1 ml-2">
                 <span className="text-xs text-slate-500">{selectedOdts.size} seleccionados</span>
