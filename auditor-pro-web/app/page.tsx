@@ -611,30 +611,7 @@ export default function HomePage() {
             {/* Sync button */}
             <button 
               onClick={async () => {
-                if (!confirm('¿Sincronizar datos desde PSM?')) return
-                try {
-                  setLoadingOptimized(true)
-                  const res = await fetch('/api/sync', { 
-                    method: 'POST',
-                    signal: AbortSignal.timeout(180000) // 3 min timeout
-                  })
-                  const data = await res.json()
-                  if (data.ok) {
-                    alert(`Sincronización completada:\n- ODTs: ${data.odts}\n- Consumos: ${data.consumos}\n- Tiempo: ${data.tiempo}ms`)
-                    loadOdtsOptimized(true)
-                    loadStatsDB()
-                  } else {
-                    alert('Error: ' + (data.error || 'Error desconocido'))
-                  }
-                } catch (e: any) {
-                  if (e.name === 'TimeoutError' || e.message.includes('timeout')) {
-                    alert('La sincronización tardó mucho. Los datos se están procesando en segundo plano.')
-                  } else {
-                    alert('Error: ' + e.message)
-                  }
-                } finally {
-                  setLoadingOptimized(false)
-                }
+                alert('La sincronización se debe ejecutar desde tu PC local.\n\nEjecuta en terminal:\n\nnode sync-local.js\n\nO si tienes el proxy ngrok activo con otra URL:\nnode sync-local.js https://tu-url.ngrok.io')
               }}
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 bg-blue-50"
             >
