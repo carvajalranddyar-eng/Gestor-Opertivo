@@ -19,21 +19,20 @@ export async function GET(req: NextRequest) {
     
     console.log('[DEBUG] Params parsed. filtro:', filtro, 'cuadrilla:', filtroCuadrilla, 'psm:', filtroPSM)
 
-    // 1. Cargar todos los consumos con productos completos
+    // 1. Cargar TODOS los consumos (sin filtro de series)
     const batchSize = 10000
     const allConsumosData = new Map<string, any>()
     let offsetConsumos = 0
     
     while (true) {
-      const { data: seriesBatch } = await supabase
+      const { data: allBatch } = await supabase
         .from('consumos')
         .select('odt_codigo, producto_codigo, series')
-        .not('series', 'is', null)
         .range(offsetConsumos, offsetConsumos + batchSize - 1)
       
-      if (!seriesBatch || seriesBatch.length === 0) break
+      if (!allBatch || allBatch.length === 0) break
       
-      seriesBatch.forEach((s: any) => {
+      allBatch.forEach((s: any) => {
         if (s.odt_codigo) {
           if (!allConsumosData.has(s.odt_codigo)) {
             allConsumosData.set(s.odt_codigo, [])
@@ -45,7 +44,7 @@ export async function GET(req: NextRequest) {
         }
       })
       
-      if (seriesBatch.length < batchSize) break
+      if (allBatch.length < batchSize) break
       offsetConsumos += batchSize
     }
 
@@ -68,7 +67,7 @@ export async function GET(req: NextRequest) {
     const seriesDuplicadasMap = new Map<string, string[]>()
     allConsumosData.forEach((consumos, odtCodigo) => {
       consumos.forEach((c: any) => {
-        if (c.series) {
+        if (c.series && c.series !== 'N/A') {
           if (!seriesDuplicadasMap.has(c.series)) {
             seriesDuplicadasMap.set(c.series, [])
           }
@@ -89,7 +88,7 @@ export async function GET(req: NextRequest) {
       naranja: 0
     }
 
-    // Códigos de productosmandatorios
+    // Códigos de productos mandatorios
     const CODIGO_CAJA = '070008001'
     const CODIGO_PRECINTO = '072002015'
     const CODIGO_MEDIDOR = '072003015'
@@ -98,7 +97,7 @@ export async function GET(req: NextRequest) {
       const consumos = allConsumosData.get(codigo) || []
       const psSerie = odtSerieMap.get(codigo)
       
-      // Contar productos
+      // Contar productos únicos
       const productosUnicos = [...new Set(consumos.map((c: any) => c.producto_codigo))]
       const tieneCaja = productosUnicos.includes(CODIGO_CAJA)
       const tienePrecinto = productosUnicos.includes(CODIGO_PRECINTO)
@@ -106,10 +105,14 @@ export async function GET(req: NextRequest) {
       
       // Verificar si hay series duplicadas para esta ODT
       let serieDuplicada = false
+      let seriesDuplicadasCount = 0
       consumos.forEach((c: any) => {
-        if (c.series) {
+        if (c.series && c.series !== 'N/A') {
           const duplicados = seriesDuplicadasMap.get(c.series) || []
-          if (duplicados.length > 1) serieDuplicada = true
+          if (duplicados.length > 1) {
+            serieDuplicada = true
+            seriesDuplicadasCount++
+          }
         }
       })
 
@@ -348,7 +351,6 @@ export async function POST(req: NextRequest) {
         .select('cuadrilla_nombre')
         .not('cuadrilla_nombre', 'is', null)
       
-      // Return raw values from DB
       const cuadrillas = [...new Set(data?.map((o: any) => o.cuadrilla_nombre).filter(Boolean))]
       return NextResponse.json({ ok: true, cuadrillas })
     }
