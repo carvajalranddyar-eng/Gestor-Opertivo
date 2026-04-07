@@ -184,22 +184,23 @@ export async function GET(req: NextRequest) {
           Tiene_Foto: o.foto ? 'SI' : 'NO'
         })
       } else {
-        materialesList.forEach((mat, idx) => {
+        // Una fila por cada material - SIEMPRE填满所有字段
+        materialesList.forEach((mat) => {
           rows.push({
-            ODT: idx === 0 ? o.codigo_barras : '',
-            Numero: idx === 0 ? o.numero : '',
-            Cliente: idx === 0 ? o.cliente : '',
-            Direccion: idx === 0 ? o.direccion : '',
-            Cuadrilla: idx === 0 ? o.cuadrilla_nombre : '',
-            Estado_PSM: idx === 0 ? o.estado : '',
-            Fecha_Ingreso: idx === 0 ? o.fecha_ingreso : '',
-            Estado_Semaforo: idx === 0 ? (analisis?.estadoSemaforo || 'sin_datos') : '',
-            Motivo: idx === 0 ? (analisis?.motivo || '') : '',
-            Medidor_Serie: idx === 0 ? (analisis?.serieEfectiva || o.medidor_serie || '') : '',
+            ODT: o.codigo_barras,
+            Numero: o.numero,
+            Cliente: o.cliente,
+            Direccion: o.direccion,
+            Cuadrilla: o.cuadrilla_nombre,
+            Estado_PSM: o.estado,
+            Fecha_Ingreso: o.fecha_ingreso,
+            Estado_Semaforo: analisis?.estadoSemaforo || 'sin_datos',
+            Motivo: analisis?.motivo || '',
+            Medidor_Serie: analisis?.serieEfectiva || o.medidor_serie || '',
             Material_Codigo: mat.codigo,
             Material_Descripcion: mat.descripcion,
             Material_Cantidad: mat.cantidad,
-            Tiene_Foto: idx === 0 ? (o.foto ? 'SI' : 'NO') : ''
+            Tiene_Foto: o.foto ? 'SI' : 'NO'
           })
         })
       }
