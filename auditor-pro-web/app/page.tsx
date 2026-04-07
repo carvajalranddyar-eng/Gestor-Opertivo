@@ -618,6 +618,29 @@ export default function HomePage() {
               {autoRefresh ? 'En Vivo' : 'Auto'}
             </button>
             
+            {/* Export button */}
+            <button 
+              onClick={async () => {
+                if (!confirm(`Exportar ${totalOdts} ODTs a Excel?`)) return
+                const params = new URLSearchParams()
+                if (filtroMateriales) params.set('filtro', filtroMateriales)
+                if (filtroCuadrilla) params.set('cuadrilla', filtroCuadrilla)
+                if (filtroPSM) params.set('psm_estado', filtroPSM)
+                
+                const res = await fetch(`/api/export-odts?${params.toString()}`)
+                const blob = await res.blob()
+                const url = window.URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `ODTs_${filtroMateriales || 'todos'}_${new Date().toISOString().split('T')[0]}.xlsx`
+                a.click()
+                window.URL.revokeObjectURL(url)
+              }}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 bg-emerald-50"
+            >
+              📥 Exportar
+            </button>
+            
             {/* Last update indicator */}
             {lastUpdate && (
               <span className="text-[10px] text-slate-400">

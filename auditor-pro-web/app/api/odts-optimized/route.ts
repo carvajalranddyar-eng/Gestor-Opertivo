@@ -291,7 +291,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    if (body.getCuadrillas) {
+    if (body.action === 'getCuadrillas' || body.getCuadrillas) {
       const { data } = await supabase
         .from('odts')
         .select('cuadrilla_nombre')
