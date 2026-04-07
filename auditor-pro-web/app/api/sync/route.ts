@@ -17,7 +17,11 @@ export async function POST(req: NextRequest) {
       body = await req.json()
     } catch (e) {}
     
-    const baseUrl = body?.psmUrl || 'https://psm.emaservicios.com.ar'
+    // Get PSM URL from settings
+    const { data: settings } = await supabase.from('settings').select('psm_url').eq('id', 1).single()
+    const configuredUrl = settings?.psm_url || ''
+    
+    const baseUrl = body?.psmUrl || configuredUrl || 'https://psm.emaservicios.com.ar'
     detalle.push(`🔗 PSM: ${baseUrl}`)
     
     // Login
