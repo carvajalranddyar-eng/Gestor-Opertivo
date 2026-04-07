@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
       const consumos = allConsumosData.get(codigo) || []
       const psSerie = odtSerieMap.get(codigo)
       
-      // Contar productos únicos
+      // Contar productos únicos (incluyendo los que NO tienen serie)
       const productosUnicos = [...new Set(consumos.map((c: any) => c.producto_codigo))]
       const tieneCaja = productosUnicos.includes(CODIGO_CAJA)
       const tienePrecinto = productosUnicos.includes(CODIGO_PRECINTO)
@@ -124,6 +124,7 @@ export async function GET(req: NextRequest) {
         estadoSemaforo = 'purpura'
         stats.purpura++
       } else if (consumos.length > 0) {
+        // Tiene consumos - verificar medidor
         if (psSerie) {
           // Hay medidor en PSM - verificar si tiene todos los básicos
           if (tieneCaja && tienePrecinto && tieneMedidor) {
@@ -142,6 +143,10 @@ export async function GET(req: NextRequest) {
           estadoSemaforo = 'naranja'
           stats.naranja++
         }
+      } else {
+        // Sin consumos - rojo
+        estadoSemaforo = 'rojo'
+        stats.rojo++
       }
 
       analisisAllMap.set(codigo, {
@@ -166,7 +171,10 @@ export async function GET(req: NextRequest) {
 
     stats.sinMateriales = (totalOdts || 0) - uniqueMatchingCodes.length
 
-    console.log('[DEBUG] Stats calculated:', stats)
+    console.log('[DEBUG] Stats calculated:', JSON.stringify(stats))
+    console.log('[DEBUG] Unique matching codes:', uniqueMatchingCodes.length)
+    console.log('[DEBUG] Sample codes:', uniqueMatchingCodes.slice(0, 5))
+    console.log('[DEBUG] ODTs with medidor_serie:', odtSerieMap.size)
 
     // 6. Obtener ODTs con filtros de semáforo
     if ((filtro === 'con_materiales' || filtro === 'rojo' || filtro === 'amarillo' || filtro === 'verde' || filtro === 'purpura' || filtro === 'duplicada' || filtro === 'naranja') && uniqueMatchingCodes.length > 0) {
