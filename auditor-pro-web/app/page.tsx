@@ -613,17 +613,27 @@ export default function HomePage() {
               onClick={async () => {
                 if (!confirm('¿Sincronizar datos desde PSM?')) return
                 try {
-                  const res = await fetch('/api/sync', { method: 'POST' })
+                  setLoadingOptimized(true)
+                  const res = await fetch('/api/sync', { 
+                    method: 'POST',
+                    signal: AbortSignal.timeout(180000) // 3 min timeout
+                  })
                   const data = await res.json()
                   if (data.ok) {
-                    alert(`Sincronización completada:\n- ODTs: ${data.odts_procesadas}\n- Consumos: ${data.consumos_procesados}`)
+                    alert(`Sincronización completada:\n- ODTs: ${data.odts}\n- Consumos: ${data.consumos}\n- Tiempo: ${data.tiempo}ms`)
                     loadOdtsOptimized(true)
                     loadStatsDB()
                   } else {
                     alert('Error: ' + (data.error || 'Error desconocido'))
                   }
                 } catch (e: any) {
-                  alert('Error: ' + e.message)
+                  if (e.name === 'TimeoutError' || e.message.includes('timeout')) {
+                    alert('La sincronización tardó mucho. Los datos se están procesando en segundo plano.')
+                  } else {
+                    alert('Error: ' + e.message)
+                  }
+                } finally {
+                  setLoadingOptimized(false)
                 }
               }}
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 bg-blue-50"

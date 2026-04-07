@@ -1,221 +1,185 @@
 import { NextRequest, NextResponse } from 'next/server'
 import axios from 'axios'
-import { loginPSM } from '@/lib/psm/auth'
 import { supabase } from '@/lib/supabase'
 
+export const maxDuration = 300
+
 export async function POST(req: NextRequest) {
-  const inicio = new Date()
-  let odts_procesadas = 0
-  let consumos_procesados = 0
-  let errores = 0
+  console.log('[SYNC] Starting sync...')
+  const inicio = Date.now()
+  let odtsGuardadas = 0
+  let consumosGuardados = 0
   const detalle: string[] = []
 
   try {
-    const token = await loginPSM()
-    detalle.push('✅ Login PSM exitoso')
+    let body: { psmUrl?: string } = {}
+    try {
+      body = await req.json()
+    } catch (e) {}
+    
+    const baseUrl = body?.psmUrl || 'https://psm.emaservicios.com.ar'
+    detalle.push(`🔗 PSM: ${baseUrl}`)
+    
+    // Login
+    const loginRes = await fetch(baseUrl + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'referer': baseUrl + '/informe-piezas-odt' },
+      body: JSON.stringify({ nombreUsuario: 'rcarvajal@emaservicios.com.ar', password: '10003' })
+    })
+    
+    if (!loginRes.ok) throw new Error(`Login falló: ${loginRes.status}`)
+    
+    const loginData = await loginRes.json()
+    const token = loginData.access_token || loginData.token
+    if (!token) throw new Error('No se obtuvo token')
+    
+    detalle.push('✅ Login OK')
+    detalle.push(`⏱️ Tiempo: ${Date.now() - inicio}ms`)
 
-    const [resOdts, resConsumos] = await Promise.all([
-      axios.get(
-        `${process.env.PSM_BASE_URL}/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=0&pageSize=5000`,
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
-      ),
-      axios.get(
-        `${process.env.PSM_BASE_URL}/consumos`,
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
+    // Traer ODTs - usar pageSize más grande para menos requests
+    const todasOdts: any[] = []
+    let page = 0
+    let hasMore = true
+    const MAX_PAGES = 25
+    const PAGE_SIZE = 500
+    
+    while (hasMore && page < MAX_PAGES) {
+      const t0 = Date.now()
+      const resOdts = await axios.get(
+        `${baseUrl}/api/informePiezas/tablaFiltradaOdt?ultimaPieza=false&page=${page}&pageSize=${PAGE_SIZE}`,
+        { headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' }, timeout: 60000 }
       )
-    ])
-
-    const todasOdts = resOdts.data.data || []
-    const todosConsumos = resConsumos.data.consumos || []
-    detalle.push(`📋 ${todasOdts.length} ODTs traídas del PSM`)
-    detalle.push(`📦 ${todosConsumos.length} consumos traídos del PSM`)
-
-    // Indexar consumos por ODT
-    const consumosPorOdt = new Map<string, any[]>()
-    todosConsumos.forEach((c: any) => {
-      const key = String(c.odt)
-      if (!consumosPorOdt.has(key)) consumosPorOdt.set(key, [])
-      consumosPorOdt.get(key)!.push(c)
-    })
-
-    // Detectar medidores duplicados
-    const medidoresPorSerie = new Map<string, string[]>()
-    todosConsumos.forEach((c: any) => {
-      if (c.producto_codigo === '072003015' && c.series) {
-        const key = String(c.series)
-        if (!medidoresPorSerie.has(key)) medidoresPorSerie.set(key, [])
-        medidoresPorSerie.get(key)!.push(String(c.odt))
-      }
-    })
-
-    const S3_BASE = 'https://s3.amazonaws.com/ocrbsas-userfiles-mobilehub-94990329'
-
-    for (const odt of todasOdts) {
-      try {
-        const odtId = String(odt.codigoBarras || odt.numero)
-        const consumosOdt = consumosPorOdt.get(odtId) || []
-        const medidorConsumo = consumosOdt.find((c: any) => c.producto_codigo === '072003015')
-        const tieneFotos = odt.foto !== null || (odt.fotosAdicionales && odt.fotosAdicionales.length > 0)
-        const tieneConsumos = consumosOdt.length > 0
-
-        if (!tieneFotos && !tieneConsumos) continue
-
-        // Guardar ODT
-        const { error: errorOdt } = await supabase
-          .from('odts')
-          .upsert({
-            codigo_barras: odtId,
-            numero: String(odt.numero || ''),
-            cliente: odt.cliente || '',
-            direccion: odt.direccionTitular || '',
-            titular: odt.nombreTitular || '',
-            localidad: odt.localidad || '',
-            estado: odt.estado || '',
-            tipo_servicio: odt.tipoServicio || '',
-            cuadrilla_id: String(odt.cuadrilla || ''),
-            cuadrilla_nombre: odt.desc_cuadrilla || '',
-            fecha_ingreso: odt.fechaIngreso || '',
-            fecha_asignacion: odt.fechaAsignacion || '',
-            medidor_serie: medidorConsumo?.series || odt.medidor || null,
-            actualizado_en: new Date().toISOString()
-          }, { onConflict: 'codigo_barras' })
-
-        if (errorOdt) { errores++; continue }
-
-        // Guardar fotos
-        const urlsFotos: string[] = []
-        if (odt.foto) urlsFotos.push(odt.foto.startsWith('http') ? odt.foto : `${S3_BASE}/${odt.foto}`)
-        odt.fotosAdicionales?.forEach((f: string) => {
-          urlsFotos.push(f.startsWith('http') ? f : `${S3_BASE}/${f}`)
-        })
-
-        if (urlsFotos.length > 0) {
-          await supabase.from('fotos').delete().eq('odt_codigo', odtId)
-          await supabase.from('fotos').insert(
-            urlsFotos.map(url => ({
-              odt_codigo: odtId,
-              url_s3: url,
-              tipo_pieza: null,
-              fecha_foto: odt.fechaIngreso || null
-            }))
-          )
-        }
-
-        // Detectar hallazgos
-        const hallazgosNuevos: any[] = []
-
-        if (tieneFotos && !tieneConsumos) {
-          hallazgosNuevos.push({
-            odt_codigo: odtId,
-            tipo_hallazgo: 'sin_consumo',
-            descripcion: 'Tiene fotos de instalación pero no tiene materiales registrados en el sistema',
-            severidad: 'critica',
-            fuente_1: 'PSM informe-piezas (foto presente)',
-            fuente_2: 'PSM consumos (sin registros)',
-            confirmado: true
-          })
-        }
-
-        if (!tieneFotos && tieneConsumos) {
-          hallazgosNuevos.push({
-            odt_codigo: odtId,
-            tipo_hallazgo: 'sin_fotos',
-            descripcion: 'Tiene materiales registrados pero no tiene fotos de evidencia',
-            severidad: 'alta',
-            fuente_1: 'PSM consumos (registros presentes)',
-            fuente_2: 'PSM informe-piezas (sin fotos)',
-            confirmado: true
-          })
-        }
-
-        if (medidorConsumo?.series) {
-          const odtsConEsteMedidor = medidoresPorSerie.get(String(medidorConsumo.series)) || []
-          if (odtsConEsteMedidor.length > 1) {
-            hallazgosNuevos.push({
-              odt_codigo: odtId,
-              tipo_hallazgo: 'medidor_duplicado',
-              descripcion: `Medidor serie ${medidorConsumo.series} aparece en ${odtsConEsteMedidor.length} ODTs: ${odtsConEsteMedidor.join(', ')}`,
-              severidad: 'critica',
-              fuente_1: 'PSM consumos (serie duplicada)',
-              fuente_2: `ODTs afectadas: ${odtsConEsteMedidor.join(', ')}`,
-              confirmado: true
-            })
-          }
-        }
-
-        consumosOdt.forEach((c: any) => {
-          if (odt.cuadrilla && String(c.cuadrilla_codigo) !== String(odt.cuadrilla)) {
-            hallazgosNuevos.push({
-              odt_codigo: odtId,
-              tipo_hallazgo: 'cuadrilla_incorrecta',
-              descripcion: `Material registrado por cuadrilla ${c.cuadrilla_codigo} (${c.cuadrilla_descripcion}) pero la ODT pertenece a cuadrilla ${odt.cuadrilla} (${odt.desc_cuadrilla})`,
-              severidad: 'alta',
-              fuente_1: `PSM consumos (cuadrilla ${c.cuadrilla_codigo})`,
-              fuente_2: `PSM informe-piezas (cuadrilla ${odt.cuadrilla})`,
-              confirmado: true
-            })
-          }
-        })
-
-        if (hallazgosNuevos.length > 0) {
-          await supabase.from('hallazgos').delete().eq('odt_codigo', odtId).eq('confirmado', true)
-          await supabase.from('hallazgos').insert(hallazgosNuevos)
-        }
-
-        odts_procesadas++
-      } catch (e) {
-        errores++
-      }
+      
+      const odtsPage = resOdts.data.data || []
+      todasOdts.push(...odtsPage)
+      detalle.push(`📋 Página ${page}: ${odtsPage.length} ODTs (${Date.now() - t0}ms)`)
+      
+      hasMore = odtsPage.length === PAGE_SIZE
+      page++
     }
 
-    // Guardar consumos en batches
-    if (todosConsumos.length > 0) {
-      await supabase.from('consumos').delete().neq('id', 0)
-      const batch = todosConsumos.map((c: any) => ({
-        odt_codigo: String(c.odt),
-        producto_codigo: c.producto_codigo || '',
-        producto_descripcion: c.producto_descripcion || '',
-        cantidad: c.cantidad || 0,
-        series: c.series || null,
-        cuadrilla_codigo: String(c.cuadrilla_codigo || ''),
-        cuadrilla_descripcion: c.cuadrilla_descripcion || '',
-        fecha_consumo: c.created_at || null
-      }))
+    detalle.push(`📋 Total ODTs: ${todasOdts.length}`)
+    detalle.push(`⏱️ Tiempo: ${Date.now() - inicio}ms`)
 
-      for (let i = 0; i < batch.length; i += 500) {
-        await supabase.from('consumos').insert(batch.slice(i, i + 500))
-        consumos_procesados += Math.min(500, batch.length - i)
+    // Crear mapeo numero -> codigoBarras
+    const numeroACodigoBarras = new Map<string, string>()
+    const numeroAOdtData = new Map<string, any>()
+    
+    todasOdts.forEach((odt: any) => {
+      const codigoBarras = String(odt.codigoBarras || '')
+      const numero = String(odt.numero || '')
+      
+      if (numero) {
+        numeroACodigoBarras.set(numero, codigoBarras)
+        numeroAOdtData.set(numero, odt)
       }
-    }
+      if (codigoBarras && codigoBarras !== numero) {
+        numeroACodigoBarras.set(codigoBarras, codigoBarras)
+        numeroAOdtData.set(codigoBarras, odt)
+      }
+    })
+    
+    detalle.push(`🔗 Mapeo: ${numeroACodigoBarras.size} ODTs indexadas`)
 
-    detalle.push(`✅ ${odts_procesadas} ODTs procesadas`)
-    detalle.push(`✅ ${consumos_procesados} consumos guardados`)
-    detalle.push(`⚠️ ${errores} errores`)
-
-    await supabase.from('sincronizaciones').insert({
-      tipo: 'psm',
-      inicio: inicio.toISOString(),
-      fin: new Date().toISOString(),
-      odts_procesadas,
-      consumos_procesados,
-      errores,
-      estado: 'exitoso',
-      detalle: { pasos: detalle }
+    // Traer consumos
+    const t0 = Date.now()
+    const resConsumos = await axios.get(`${baseUrl}/api/consumos`, {
+      headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' }, 
+      timeout: 120000 
     })
 
-    return NextResponse.json({ ok: true, odts_procesadas, consumos_procesados, errores, detalle })
+    const todosConsumosRaw = resConsumos.data.consumos || resConsumos.data || []
+    detalle.push(`📦 Consumos: ${todosConsumosRaw.length} (${Date.now() - t0}ms)`)
+    detalle.push(`⏱️ Tiempo: ${Date.now() - inicio}ms`)
+
+    // Transformar consumos: reemplazar numero con codigoBarras
+    const consumosTransformados: any[] = []
+    let sinOdt = 0
+    
+    for (const c of todosConsumosRaw) {
+      const codigoBarras = numeroACodigoBarras.get(String(c.odt))
+      
+      if (codigoBarras) {
+        consumosTransformados.push({
+          odt_codigo: codigoBarras,
+          producto_codigo: c.producto_codigo || '',
+          producto_descripcion: c.producto_descripcion || '',
+          cantidad: c.cantidad || 0,
+          series: c.series || null,
+          cuadrilla_codigo: String(c.cuadrilla_codigo || ''),
+          cuadrilla_descripcion: c.cuadrilla_descripcion || '',
+          fecha_consumo: c.created_at || null
+        })
+      } else {
+        sinOdt++
+      }
+    }
+    
+    if (sinOdt > 0) detalle.push(`⚠️ ${sinOdt} consumos sin ODT`)
+    detalle.push(`✅ ${consumosTransformados.length} consumos transformados`)
+
+    // Guardar ODTs en batch
+    const t1 = Date.now()
+    const odtsBatch = todasOdts.map((odt: any) => ({
+      codigo_barras: String(odt.codigoBarras || odt.numero || ''),
+      numero: String(odt.numero || odt.codigoBarras || ''),
+      cliente: odt.cliente || '',
+      direccion: odt.direccionTitular || '',
+      titular: odt.nombreTitular || '',
+      localidad: odt.localidad || '',
+      estado: odt.estado || '',
+      tipo_servicio: odt.tipoServicio || '',
+      cuadrilla_id: String(odt.cuadrilla || ''),
+      cuadrilla_nombre: odt.desc_cuadrilla || '',
+      fecha_ingreso: odt.fechaIngreso || '',
+      fecha_asignacion: odt.fechaAsignacion || '',
+      medidor_serie: odt.medidor || null,
+      foto: odt.foto || null,
+      fotos_adicionales: JSON.stringify(odt.fotosAdicionales || []),
+      actualizado_en: new Date().toISOString()
+    }))
+    
+    // Guardar ODTs en batches de 200
+    for (let i = 0; i < odtsBatch.length; i += 200) {
+      await supabase.from('odts').upsert(odtsBatch.slice(i, i + 200), { onConflict: 'codigo_barras' })
+      odtsGuardadas += Math.min(200, odtsBatch.length - i)
+    }
+    
+    detalle.push(`✅ ${odtsGuardadas} ODTs guardadas (${Date.now() - t1}ms)`)
+    detalle.push(`⏱️ Tiempo: ${Date.now() - inicio}ms`)
+
+    // Guardar consumos - eliminar primero para evitar duplicados
+    const t2 = Date.now()
+    await supabase.from('consumos').delete().neq('id', 0)
+    
+    for (let i = 0; i < consumosTransformados.length; i += 200) {
+      await supabase.from('consumos').insert(consumosTransformados.slice(i, i + 200))
+      consumosGuardados += Math.min(200, consumosTransformados.length - i)
+    }
+    
+    detalle.push(`✅ ${consumosGuardados} consumos guardados (${Date.now() - t2}ms)`)
+    detalle.push(`⏱️ Tiempo total: ${Date.now() - inicio}ms`)
+    console.log('[SYNC] Completed:', detalle)
+
+    return NextResponse.json({ 
+      ok: true, 
+      odts: odtsGuardadas, 
+      consumos: consumosGuardados, 
+      tiempo: Date.now() - inicio,
+      detalle 
+    })
 
   } catch (error: any) {
-    await supabase.from('sincronizaciones').insert({
-      tipo: 'psm',
-      inicio: inicio.toISOString(),
-      fin: new Date().toISOString(),
-      odts_procesadas,
-      consumos_procesados,
-      errores,
-      estado: 'error',
-      detalle: { error: error.message, pasos: detalle }
-    })
-    return NextResponse.json({ ok: false, error: error.message, detalle }, { status: 500 })
+    detalle.push(`❌ Error: ${error.message}`)
+    detalle.push(`⏱️ Tiempo: ${Date.now() - inicio}ms`)
+    
+    return NextResponse.json({ 
+      ok: false, 
+      error: error.message, 
+      odts_procesadas: odtsGuardadas,
+      consumos_procesados: consumosGuardados,
+      tiempo: Date.now() - inicio,
+      detalle 
+    }, { status: 500 })
   }
 }
