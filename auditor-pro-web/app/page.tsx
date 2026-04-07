@@ -608,6 +608,29 @@ export default function HomePage() {
               {(loadingOptimized || isRefreshing) ? 'Cargando...' : 'Actualizar'}
             </button>
             
+            {/* Sync button */}
+            <button 
+              onClick={async () => {
+                if (!confirm('¿Sincronizar datos desde PSM?')) return
+                try {
+                  const res = await fetch('/api/sync', { method: 'POST' })
+                  const data = await res.json()
+                  if (data.ok) {
+                    alert(`Sincronización completada:\n- ODTs: ${data.odts_procesadas}\n- Consumos: ${data.consumos_procesados}`)
+                    loadOdtsOptimized(true)
+                    loadStatsDB()
+                  } else {
+                    alert('Error: ' + (data.error || 'Error desconocido'))
+                  }
+                } catch (e: any) {
+                  alert('Error: ' + e.message)
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 bg-blue-50"
+            >
+              🔄 Sincronizar
+            </button>
+            
             {/* Auto-refresh toggle */}
             <button 
               onClick={() => setAutoRefresh(!autoRefresh)}
